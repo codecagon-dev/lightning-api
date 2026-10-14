@@ -1,0 +1,27 @@
+{
+  "name": "lightning-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test --test-isolation=none tests/*.test.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "dotenv": "17.4.2",
+    "hono": "4.13.5",
+    "ssh2": "1.17.0",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "@types/ssh2": "1.15.5",
+    "@types/ws": "8.18.1",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2"
+  }
+}
