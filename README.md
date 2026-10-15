@@ -6,7 +6,8 @@ were created with the help of AI coding agents.
 Manage your own computers on a local network: wake them with Wake-on-LAN,
 shut them down over SSH, and monitor their reachability through a WebSocket.
 
-Built with TypeScript, Hono, and SQLite. No frontend is included.
+Built with TypeScript, Hono, and SQLite. The frontend is maintained separately
+in [Lightning App](https://github.com/codecagon-dev/lightning-app).
 
 ## Features
 
@@ -20,6 +21,23 @@ Built with TypeScript, Hono, and SQLite. No frontend is included.
 A reachable SSH port does not guarantee a successful login, so the API reports
 `status` and `sshStatus` separately. Sending a WOL packet does not confirm that
 the computer has started.
+
+## Target computer requirements
+
+Before using the API, configure each computer you want to control:
+
+- Enable Wake-on-LAN in the BIOS/UEFI and network adapter settings. Use the
+  correct MAC address and LAN broadcast address.
+- Install and enable an SSH server, and allow the API host to reach its SSH port.
+- Give the SSH user permission to shut down the computer without an interactive
+  password prompt. On Linux, allow `sudo -n /sbin/shutdown -h now` through a
+  command-specific `NOPASSWD` sudoers rule. On Windows, grant permission to run
+  `shutdown.exe /s /t 0`.
+
+SSH login still requires the configured password or private key. The
+password-free permission applies to the shutdown command.
+See [Preparing computers](docs/computers.md) for host key verification, the
+sudoers example, and WOL setup.
 
 ## Quick start
 
