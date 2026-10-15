@@ -1,53 +1,53 @@
-# Computers voorbereiden
+# Preparing computers
 
-[Terug naar de README](../README.md)
+[Back to the README](../README.md)
 
-## SSH en afsluitrechten
+## SSH and shutdown permissions
 
-Controleer de SSH-hostfingerprint via een vertrouwde console of een reeds
-geverifieerde beheerverbinding op de computer zelf, bijvoorbeeld op Linux:
+Verify the SSH host fingerprint through a trusted console or an already verified
+management connection on the target computer. On Linux, for example:
 
 ```sh
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
 ```
 
-Neem het `SHA256:...`-veld zonder afsluitende `=` over. Controleer dat de server
-die sleutel aanbiedt. `ssh-keyscan` zonder onafhankelijke controle is geen
-vertrouwde bron. Bij een gewijzigde of onbekende key wordt geen shutdown uitgevoerd.
+Copy the `SHA256:...` field without a trailing `=`. Check that the server offers
+that key. `ssh-keyscan` without independent verification is not a trusted source.
+An unknown or changed key prevents the shutdown command from running.
 
-Op Linux moet de toegewezen SSH-gebruiker uitsluitend de vaste shutdown-opdracht
-zonder wachtwoord mogen uitvoeren. Maak via `sudo visudo -f
-/etc/sudoers.d/lightning` bijvoorbeeld deze regel (pas alleen de gebruiker aan):
+On Linux, the SSH user must be allowed to run the fixed shutdown command without
+a password. Use `sudo visudo -f /etc/sudoers.d/lightning` to add a rule such as
+this one, replacing the username as needed:
 
 ```sudoers
 lightning ALL=(root) NOPASSWD: /sbin/shutdown -h now
 ```
 
-De API voert exact `sudo -n /sbin/shutdown -h now` uit. Controleer lokaal dat dit
-pad bestaat; geef geen brede `NOPASSWD: ALL` of willekeurige shellrechten.
-Test het werkelijk afsluiten uitsluitend tijdens een afgesproken onderhoudsmoment.
+The API runs exactly `sudo -n /sbin/shutdown -h now`. Check that this path exists
+on the target. Do not grant broad `NOPASSWD: ALL` permissions or arbitrary command
+access. Test actual shutdown during a planned maintenance window.
 
-Op Windows: installeer/configureer OpenSSH Server, start `sshd`, open de gekozen
-SSH-poort in de firewall en geef de SSH-gebruiker de nodige afsluitrechten.
-De opdracht is exact `shutdown.exe /s /t 0`. Controleer de aangeboden hostkey via
-een vertrouwde console met `ssh-keygen -lf` op de publieke hostsleutel in
-`C:\ProgramData\ssh`. Valideer rechten en gedrag op de doelcomputer.
+On Windows, install and configure OpenSSH Server, start `sshd`, allow the chosen
+SSH port through the firewall, and grant the SSH user shutdown permissions.
+The command is exactly `shutdown.exe /s /t 0`. Verify the offered host key from a
+trusted console using `ssh-keygen -lf` on the public host key in
+`C:\ProgramData\ssh`. Validate permissions and behavior on the target computer.
 
 ## Wake-on-LAN
 
-Schakel wake via LAN/PCIe in BIOS/UEFI en in de netwerkadapterdriver in.
-Controleer standbyvoeding, bekabelde LAN-ondersteuning, MAC-adres en subnet-
-broadcastadres. Switches, firewalls, slaapstanden en Windows Fast Startup kunnen
-WOL verhinderen. Docker-host en computers horen op het computer-LAN; de router
-moet broadcast doorlaten als ze niet op hetzelfde subnet staan. Een TCP-status-
-test bewijst geen werkende WOL of shutdown: beide vereisen echte hardwarevalidatie.
+Enable LAN/PCIe wake in BIOS/UEFI and in the network adapter driver. Check standby
+power, wired LAN support, the MAC address, and the subnet broadcast address.
+Switches, firewalls, sleep states, and Windows Fast Startup can prevent WOL.
+The Docker host and target computers should be on the same LAN; a router must
+forward broadcasts if they are on different subnets. A TCP status check does not
+prove WOL or shutdown works: both require verification on real hardware.
 
-Het broadcastadres is niet het subnetmasker. Bijvoorbeeld: bij IP-adres
-`192.168.1.20` en subnetmasker `255.255.255.0` is het broadcastadres
-`192.168.1.255`. Gebruik het broadcastadres van jouw eigen subnet en het MAC-adres
-van de netwerkadapter die WOL ondersteunt. De UDP-poort is standaard 9.
+The broadcast address is not the subnet mask. For example, IP address
+`192.168.1.20` with subnet mask `255.255.255.0` has broadcast address
+`192.168.1.255`. Use your own subnet's broadcast address and the MAC address of the
+adapter that supports WOL. The default UDP port is 9.
 
-Een succesvolle WOL-response bevestigt dat de API het pakket heeft verstuurd;
-het is geen ontvangstbevestiging van de pc. Vergelijk bij problemen MAC-adres,
-broadcastadres en poort met een werkende WOL-app, en controleer of beide verzenders
-hetzelfde LAN kunnen bereiken.
+A successful WOL response confirms that the API sent the packet; it is not an
+acknowledgment from the computer. When troubleshooting, compare the MAC address,
+broadcast address, and port with a working WOL app, and check that both senders
+can reach the same LAN.

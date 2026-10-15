@@ -1,65 +1,66 @@
-# Beheer
+# Operations
 
-[Terug naar de README](../README.md)
+[Back to the README](../README.md)
 
-## Logs bekijken
+## Viewing logs
 
-De API schrijft één JSON-object per regel: `info` naar stdout, `warn` en `error`
-naar stderr. Elke regel bevat `timestamp` (UTC), `level` en `event`.
+The API writes one JSON object per line: `info` to stdout, and `warn` and `error`
+to stderr. Each line contains `timestamp` (UTC), `level` and `event`.
 
 ```sh
-# Lokaal, na yarn build:
+# Locally, after yarn build:
 node dist/index.js > api.log 2> api-errors.log
-# Docker, inclusief recente regels en live updates:
+# Docker, including recent lines and live updates:
 docker compose logs --tail=100 --follow api
-# Alleen de JSON-regels, zonder Compose-prefix:
+# Only the JSON lines, without the Compose prefix:
 docker compose logs --no-log-prefix --tail=100 api
 ```
 
-HTTP-verzoeken krijgen `http_request` met methode, geregistreerd routepatroon,
-uiteindelijke `statusCode` en `durationMs`, ook bij 401/403/404/413/500. Onbekende
-routes heten `<unmatched>`; concrete IDs en querystrings staan niet in HTTP-logs.
-Een onverwachte 500 geeft daarnaast `internal_error` met vaste reden.
+HTTP requests produce `http_request` with the method, registered route pattern,
+final `statusCode` and `durationMs`, including for 401/403/404/413/500 responses.
+Unknown routes are named `<unmatched>`; actual IDs and query strings are not
+included in HTTP logs. An unexpected 500 also produces `internal_error` with a
+fixed reason.
 
 ```json
 {"timestamp":"2026-10-15T10:00:00.000Z","level":"info","event":"http_request","method":"POST","route":"/computers/:id/off","statusCode":202,"durationMs":12.4}
 {"timestamp":"2026-10-15T10:00:01.000Z","level":"error","event":"power_action","action":"off","computerId":"f02c60e1-f7fb-44e8-ae76-cf35487b878f","outcome":"failure","reason":"auth_failed"}
 ```
 
-Poweracties loggen `on`/`off`, de opgeslagen computer-ID en succes of fout.
-Vaste foutredenen zijn `hostkey_mismatch`, `auth_failed`, `connect_failed`,
+Power actions log `on`/`off`, the stored computer ID and success or failure.
+The fixed failure reasons are `hostkey_mismatch`, `auth_failed`, `connect_failed`,
 `connect_timeout`, `command_timeout`, `command_failed`, `udp_failed`,
-`udp_timeout`, `credential_decryption` en `unknown`. HTTP-responses blijven
-algemeen; technische foutdetails gaan niet naar clients of logs.
+`udp_timeout`, `credential_decryption` and `unknown`. HTTP responses remain
+generic; technical error details are not sent to clients or written to logs.
 
-`startup`, `shutdown_started` en `shutdown_complete` tonen de levenscyclus;
-`shutdown_failed` meldt een vaste foutreden. `startup_failed` geeft uitsluitend
-bekende configuratiecontroles of toegestane bind-/SQLite-foutcodes met een vaste
-handelingsgerichte melding. Onbekende opstartfouten krijgen een algemene melding.
+`startup`, `shutdown_started` and `shutdown_complete` show the lifecycle;
+`shutdown_failed` reports a fixed failure reason. `startup_failed` reports only
+known configuration checks or allowed bind/SQLite error codes, with a fixed,
+actionable message. Unknown startup errors receive a generic message.
 
-Bodies, headers, cookies, sessietokens, e-mailadressen, wachtwoorden, SSH-sleutels,
-passphrases, encryptiesleutels, ruwe foutmeldingen/stacks en SSH-uitvoer worden
-niet gelogd. Volledige SSH-controles geven `ssh_check` met alleen computer-ID en
-`outcome` (`ready`, `auth_failed`, `host_key_mismatch`, `unreachable` of `error`).
-Periodieke TCP-probes en WebSocket-frames produceren geen logs.
-Een falende logsink verandert de HTTP-respons of poweractie niet.
+Bodies, headers, cookies, session tokens, email addresses, passwords, SSH keys,
+passphrases, encryption keys, raw error messages/stacks and SSH output are not
+logged. Full SSH checks produce `ssh_check` with only the computer ID and
+`outcome` (`ready`, `auth_failed`, `host_key_mismatch`, `unreachable` or `error`).
+Periodic TCP probes and WebSocket frames do not produce logs.
+A failing log sink does not affect the HTTP response or power action.
 
-## Back-ups en herstel
+## Backups and recovery
 
-Stop de API vóór een eenvoudige bestandsback-up en bewaar de volledige
-SQLite-datadirectory (inclusief eventuele WAL/SHM-bestanden) en **de oorspronkelijke
-encryptiesleutel** afzonderlijk en beschermd. Bij Docker: stop eerst Compose en
-kopieer/archiveer de hostmap `data/` met behoud van eigenaar en rechten; zet de
-sleutel uit het afgeschermde envbestand veilig apart. Herstel data en sleutel
-samen en controleer de schrijfrechten voordat de API opnieuw start.
-Verwijder de map `data/` niet wanneer je data wilt behouden. Een nieuwe
-sleutel maakt bestaande credentials onleesbaar; een verloren sleutel kan niet
-uit de database worden teruggehaald.
+Stop the API before making a simple file backup, and store the entire SQLite
+data directory (including any WAL/SHM files) and **the original encryption key**
+separately and securely. With Docker, stop Compose first, then copy/archive the
+host directory `data/`, preserving ownership and permissions; store the key from
+the protected environment file separately in a safe location. Restore the data
+and key together, and check write permissions before restarting the API.
+Do not delete the `data/` directory if you want to retain your data. A new key
+makes existing credentials unreadable; a lost key cannot be recovered from the
+database.
 
-## Bestanden in Git
+## Files in Git
 
-Broncode, tests, `yarn.lock`, Docker-configuratie, `.env.example` en documentatie
-horen in Git. Echte `.env`-bestanden, SQLite-data, SSH-sleutels, logs, dependencies,
-buildoutput en lokale agentbestanden zijn uitgesloten via `.gitignore`.
-Bewaar de database en encryptiesleutel veilig buiten Git, ook bij het verhuizen
-naar een Raspberry Pi.
+Source code, tests, `yarn.lock`, Docker configuration, `.env.example` and
+documentation belong in Git. Real `.env` files, SQLite data, SSH keys, logs,
+dependencies, build output and local agent files are excluded through
+`.gitignore`. Keep the database and encryption key safe outside Git, including
+when moving to a Raspberry Pi.

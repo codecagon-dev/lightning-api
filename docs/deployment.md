@@ -1,88 +1,93 @@
-# Docker en deployment
+# Docker and deployment
 
-[Terug naar de README](../README.md)
+[Back to the README](../README.md)
 
-De bestaande Dockerfile bouwt TypeScript in de container. Op de host zijn Docker
-Engine en de Compose-plugin nodig; Node.js en Yarn hoeven daar niet apart te staan.
-De API-host moet de computers op het LAN kunnen bereiken.
+The existing Dockerfile builds TypeScript inside the container. The host needs
+Docker Engine and the Compose plugin; Node.js and Yarn do not need to be installed
+separately. The API host must be able to reach the computers on the LAN.
 
-## Lokaal testen met HTTP
+## Local HTTP development
 
-Voor Docker op je eigen pc is er een expliciete development-override:
+An explicit development override is available for Docker on your own computer:
 
-Maak bij een eerste installatie `.env.production` vanuit `.env.example` en vul
-`CREDENTIAL_ENCRYPTION_KEY` met de uitvoer van `openssl rand -base64 32`.
-Bewaar een bestaande sleutel als je al data hebt. Maak ook `data/` aan en geef
-UID/GID 1000 schrijfrechten, zoals bij de productie-instructies hieronder.
+For a new installation, create `.env.production` from `.env.example` and set
+`CREDENTIAL_ENCRYPTION_KEY` to the output of `openssl rand -base64 32`.
+Keep the existing key if you already have data. Also create `data/` and grant
+UID/GID 1000 write access, as described in the production instructions below.
 
 ```sh
 docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 docker compose -f compose.yaml -f compose.dev.yaml logs -f --tail=50 api
 ```
 
-Deze gebruikt `NODE_ENV=development` en standaard `FRONTEND_ORIGIN=http://localhost:5173`.
-De database en encryptiesleutel uit de bestaande Compose-configuratie blijven in gebruik;
-je bestaande account blijft dus geldig. `.env.production` blijft nodig voor die sleutel.
-Login en registratie gebruiken dan HttpOnly, SameSite=Strict, Path=/ en Max-Age=604800,
-zonder Secure. Log na het wisselen tussen HTTP-development en HTTPS-productie opnieuw in.
+This uses `NODE_ENV=development` and defaults to `FRONTEND_ORIGIN=http://localhost:5173`.
+The database and encryption key from the existing Compose configuration remain in
+use, so your existing account stays valid. `.env.production` is still required for
+that key. Login and registration then use HttpOnly, SameSite=Strict, Path=/ and
+Max-Age=604800, without Secure. Log in again after switching between HTTP
+development and HTTPS production.
 
-Gebruik voor frontend en API allebei `localhost` (frontend bijvoorbeeld
-`http://localhost:5173`, API `http://localhost:3000`) en stuur bij login, registratie
-en beveiligde requests `credentials: 'include'` mee. Voor een andere frontend-origin:
+Use `localhost` for both the frontend and API (for example,
+`http://localhost:5173` for the frontend and `http://localhost:3000` for the API),
+and include `credentials: 'include'` in login, registration and authenticated
+requests. To use a different frontend origin:
 
 ```sh
 FRONTEND_ORIGIN=http://localhost:3001 docker compose -f compose.yaml -f compose.dev.yaml up -d
 ```
 
-De override leest `FRONTEND_ORIGIN` uit de shell of de lokale `.env`, met localhost:5173
-als fallback. Alleen `NODE_ENV=development` in een envbestand zetten is voor de
-basis-Compose-configuratie niet voldoende: die forceert production.
+The override reads `FRONTEND_ORIGIN` from the shell or the local `.env`, falling
+back to localhost:5173. Setting only `NODE_ENV=development` in an environment file
+is not enough for the base Compose configuration: it forces production.
 
-## Productie met HTTPS
+## Production with HTTPS
 
-Docker Engine en de Compose-plugin moeten op de server aanwezig zijn. De
-multi-stage image installeert met de lockfile, compileert TypeScript en draait als
-onbevoorrechte `node`-gebruiker. De hostmap `./data` wordt gekoppeld aan `/app/data`.
-Maak die map vooraf aan en geef de containergebruiker schrijfrechten:
+Docker Engine and the Compose plugin must be installed on the server. The
+multi-stage image installs dependencies using the lockfile, compiles TypeScript
+and runs as the unprivileged `node` user. The host directory `./data` is mounted
+at `/app/data`. Create that directory beforehand and grant the container user
+write access:
 
 ```sh
 mkdir -p data
 sudo chown -R 1000:1000 data
 ```
 
-Gebruik een eigen envbestand:
+Use a dedicated environment file:
 
 ```sh
 cp .env.example .env.production
 chmod 600 .env.production
-# Vul NODE_ENV=production, FRONTEND_ORIGIN=https://app.example.com en de sleutel in.
-# Genereer alleen voor een nieuwe installatie een sleutel:
+# Set NODE_ENV=production, FRONTEND_ORIGIN=https://app.example.com and the key.
+# Generate a key only for a new installation:
 # openssl rand -base64 32
 docker compose config --quiet
 docker compose build
 docker compose up -d
 docker compose logs --tail=20 api
-curl -i http://127.0.0.1:3000/auth/me   # Zonder cookie: 401 JSON
-# Controleer daarna via HTTPS dezelfde API-voorbeelden en WSS in de browser.
+curl -i http://127.0.0.1:3000/auth/me   # Without a cookie: 401 JSON
+# Then check the same API examples over HTTPS and WSS in the browser.
 docker compose stop
-# Herstart en controleer dat geregistreerde computers behouden blijven:
+# Restart and check that registered computers are preserved:
 docker compose up -d
 ```
 
-`network_mode: host` is hier bedoeld voor Linux: het deelt de hostnetwerkstack,
-vermindert netwerkisolatie en maakt LAN-broadcast mogelijk. Er zijn geen `ports`-
-mappings. De API bindt op host-localhost en de HTTPS-proxy draait op de host.
-De Compose-omgeving forceert productie, localhost, poort 3000 en het databasepad in de gekoppelde datamap.
-`restart: unless-stopped` herstart de service; `init: true` helpt signalen en
-procesopruiming. Secrets worden pas via `.env.production` geïnjecteerd en niet in
-de image gebakken. Publiceer `docker compose config`-output met secrets niet;
-gebruik `--quiet`. `.dockerignore` sluit secrets, lokale data en configuratie uit.
+`network_mode: host` is intended for Linux here: it shares the host network stack,
+reduces network isolation and enables LAN broadcasts. There are no `ports`
+mappings. The API binds to localhost on the host, and the HTTPS proxy runs on the
+host. The Compose environment forces production, localhost, port 3000 and the
+database path in the mounted data directory. `restart: unless-stopped` restarts
+the service; `init: true` helps with signal handling and process cleanup. Secrets
+are injected through `.env.production` at runtime and are not baked into the
+image. Do not publish `docker compose config` output containing secrets; use
+`--quiet`. `.dockerignore` excludes secrets, local data and configuration.
 
-## Reverse proxy en cookies
+## Reverse proxy and cookies
 
-Plaats een host reverse proxy voor `127.0.0.1:3000`, met geldig HTTPS-certificaat
-voor de API en ondersteuning voor WebSocket-upgrades op `/ws/computers`.
-Bijvoorbeeld een Caddy-hostconfiguratie (frontend op een andere, same-site host):
+Place a reverse proxy on the host in front of `127.0.0.1:3000`, with a valid HTTPS
+certificate for the API and support for WebSocket upgrades at `/ws/computers`.
+For example, a Caddy host configuration (with the frontend on another same-site
+host):
 
 ```caddyfile
 api.example.com {
@@ -90,31 +95,31 @@ api.example.com {
 }
 ```
 
-Stel `FRONTEND_ORIGIN=https://app.example.com` in. Frontend en API moeten
-**same-site** zijn voor SameSite=Strict-cookies: bijvoorbeeld deze twee HTTPS-
-subdomeinen, of dezelfde HTTPS-origin met een proxy. Credentialed CORS maakt
-cross-site cookies niet bruikbaar. De API controleert een aanwezige Origin exact;
-`*`, `null`, een pad en een trailing slash zijn niet geldig. Vertrouw geen
-client-IP uit forwarded headers; de huidige authlimiet gebruikt de directe peer,
-waardoor gebruikers achter één proxy dezelfde limiet delen.
+Set `FRONTEND_ORIGIN=https://app.example.com`. The frontend and API must be
+**same-site** for SameSite=Strict cookies: for example, these two HTTPS
+subdomains, or the same HTTPS origin with a proxy. Credentialed CORS does not make
+cross-site cookies usable. The API checks any supplied Origin for an exact match;
+`*`, `null`, a path and a trailing slash are invalid. Do not trust client IPs from
+forwarded headers; the current authentication rate limit uses the direct peer,
+so users behind a single proxy share the same limit.
 
 ## Raspberry Pi
 
-Gebruik bij voorkeur Raspberry Pi OS 64-bit (`uname -m` geeft `aarch64`) en bouw
-op de Pi zelf met de bovenstaande productiecommando's. Er is geen aparte
-Dockerfile of cross-compilatie nodig. Gebruik dezelfde LAN-verbinding als de
-computers die je met WOL wilt wekken.
+Prefer Raspberry Pi OS 64-bit (`uname -m` returns `aarch64`) and build on the Pi
+itself using the production commands above. No separate Dockerfile or
+cross-compilation is needed. Use the same LAN connection as the computers you
+want to wake with WOL.
 
-De API luistert met de productieconfiguratie op `127.0.0.1:3000`. Voor toegang
-vanaf andere apparaten is de HTTPS-proxy op de Pi dus ook nodig.
+With the production configuration, the API listens on `127.0.0.1:3000`. Access
+from other devices therefore also requires the HTTPS proxy on the Pi.
 
-## Een bestaande installatie verhuizen
+## Moving an existing installation
 
-Stop de API op de oude host voordat je de volledige map `data/` kopieert.
-Neem daarnaast de oorspronkelijke `CREDENTIAL_ENCRYPTION_KEY` over in het
-beveiligde `.env.production` op de nieuwe host; genereer hiervoor geen nieuwe key.
-Pas `FRONTEND_ORIGIN` aan de nieuwe frontend aan en zorg dat UID/GID 1000 op de
-nieuwe host de datamap kan schrijven. Accounts en computers staan in SQLite en
-verhuizen daarmee mee.
+Stop the API on the old host before copying the entire `data/` directory.
+Also copy the original `CREDENTIAL_ENCRYPTION_KEY` into the protected
+`.env.production` on the new host; do not generate a new key for this.
+Update `FRONTEND_ORIGIN` for the new frontend and ensure UID/GID 1000 can write to
+the data directory on the new host. Accounts and computers are stored in SQLite
+and move with it.
 
-Zie [beheer en back-ups](operations.md) voor herstel en logcontrole.
+See [operations and backups](operations.md) for recovery and log checks.

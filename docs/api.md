@@ -1,99 +1,99 @@
-# API-referentie
+# API reference
 
-Deze referentie beschrijft de huidige HTTP-endpoints en WebSocket van Lightning API. Er is geen `/api`-prefix. Gebruik in productie HTTPS en WSS. Lokaal is het standaardadres `http://localhost:3000`.
+This reference describes Lightning API's current HTTP endpoints and WebSocket. There is no `/api` prefix. Use HTTPS and WSS in production. The default local address is `http://localhost:3000`.
 
-## Algemene afspraken
+## General conventions
 
-- Requests met account- of computergegevens vereisen `Content-Type: application/json`.
-- JSON-objecten voor registratie/login, computerregistratie en computerwijzigingen zijn strikt: onbekende velden geven 400.
-- De maximale HTTP-body is 64 KiB. De gecombineerde JSON met SSH-credentials mag maximaal 32 KiB zijn, inclusief UTF-8-encoding en JSON-escaping.
-- Authenticatie gebruikt de `lightning_session`-cookie. Registreren en inloggen zetten deze cookie; er staat geen token in de responsebody.
-- De cookie is HttpOnly, SameSite=Strict, zeven dagen geldig en in productie Secure. Frontend en API moeten voor browsergebruik same-site zijn. Gebruik `credentials: 'include'` bij cross-origin fetch.
-- Een aanwezige `Origin` moet exact overeenkomen met `FRONTEND_ORIGIN`. Niet-browserclients mogen de Origin weglaten. CORS-preflights gebruiken `OPTIONS` en geven 204 bij een toegestane Origin.
-- Computergegevens en acties zijn uitsluitend beschikbaar voor de eigenaar. Een onbekende computer en een computer van iemand anders geven beide 404.
-- HTTP-fouten hebben de vorm `{"error":"melding"}`. SSH-credentials, wachtwoordhashes en sessietokens worden nooit teruggegeven.
+- Requests containing account or computer data require `Content-Type: application/json`.
+- JSON objects for registration/login, computer registration, and computer updates are strict: unknown fields return 400.
+- The maximum HTTP body size is 64 KiB. The combined JSON containing SSH credentials must not exceed 32 KiB, including UTF-8 encoding and JSON escaping.
+- Authentication uses the `lightning_session` cookie. Registration and login set this cookie; the response body contains no token.
+- The cookie is HttpOnly, SameSite=Strict, valid for seven days, and Secure in production. The frontend and API must be same-site for browser use. Use `credentials: 'include'` for cross-origin fetch requests.
+- If present, `Origin` must exactly match `FRONTEND_ORIGIN`. Non-browser clients may omit Origin. CORS preflights use `OPTIONS` and return 204 for an allowed Origin.
+- Computer data and actions are available only to the owner. An unknown computer and a computer belonging to someone else both return 404.
+- HTTP errors have the form `{"error":"message"}`. SSH credentials, password hashes, and session tokens are never returned.
 
-## Endpointoverzicht
+## Endpoint overview
 
-| Methode | Pad | Authenticatie | Succes |
+| Method | Path | Authentication | Success |
 | --- | --- | --- | --- |
-| POST | `/auth/register` | Nee | 201, gebruiker en sessiecookie |
-| POST | `/auth/login` | Nee | 200, gebruiker en sessiecookie |
-| POST | `/auth/logout` | Niet verplicht | 204, lege body; sessie ingetrokken |
-| GET | `/auth/me` | Ja | 200, huidige gebruiker |
-| POST | `/computers` | Ja | 201, aangemaakte computer |
-| GET | `/computers` | Ja | 200, eigen computers met status |
-| PATCH | `/computers/:id` | Ja | 200, bijgewerkte computer |
-| DELETE | `/computers/:id` | Ja | 204, registratie en credentials verwijderd; lege body |
-| POST | `/computers/:id/on` | Ja | 202, WOL-pakket verzonden |
-| POST | `/computers/:id/check-ssh` | Ja | 200, TCP- en SSH-diagnose |
-| POST | `/computers/:id/off` | Ja | 202, SSH-shutdown succesvol uitgevoerd |
-| GET (WebSocket-upgrade) | `/ws/computers` | Ja | 101, statusverbinding |
+| POST | `/auth/register` | No | 201, user and session cookie |
+| POST | `/auth/login` | No | 200, user and session cookie |
+| POST | `/auth/logout` | Optional | 204, empty body; session revoked |
+| GET | `/auth/me` | Yes | 200, current user |
+| POST | `/computers` | Yes | 201, created computer |
+| GET | `/computers` | Yes | 200, own computers with status |
+| PATCH | `/computers/:id` | Yes | 200, updated computer |
+| DELETE | `/computers/:id` | Yes | 204, registration and credentials deleted; empty body |
+| POST | `/computers/:id/on` | Yes | 202, WOL packet sent |
+| POST | `/computers/:id/check-ssh` | Yes | 200, TCP and SSH diagnostics |
+| POST | `/computers/:id/off` | Yes | 202, SSH shutdown completed successfully |
+| GET (WebSocket upgrade) | `/ws/computers` | Yes | 101, status connection |
 
-Er zijn momenteel geen wachtwoordreset- of admin-endpoints.
+There are currently no password reset or admin endpoints.
 
 ## Accounts
 
 ### POST /auth/register
 
-| Veld | Type | Verplicht | Regels |
+| Field | Type | Required | Rules |
 | --- | --- | --- | --- |
-| `email` | string | Ja | Geldig emailadres, maximaal 254 tekens na trimmen; wordt naar kleine letters omgezet |
-| `password` | string | Ja | 12–128 tekens; wordt niet getrimd |
+| `email` | string | Yes | Valid email address, at most 254 characters after trimming; converted to lowercase |
+| `password` | string | Yes | 12–128 characters; not trimmed |
 
 ```json
-{"email":"operator@example.com","password":"voorbeeld-wachtwoord-123"}
+{"email":"operator@example.com","password":"example-password-123"}
 ```
 
-Succes: **201** en een `Set-Cookie`-header. Registreren logt de gebruiker direct in.
+Success: **201** and a `Set-Cookie` header. Registration logs the user in immediately.
 
 ```json
 {"user":{"id":"550e8400-e29b-41d4-a716-446655440000","email":"operator@example.com"}}
 ```
 
-Fouten: 400 bij ongeldige velden/JSON, 409 `Email already registered`, 415 bij een verkeerd contenttype, 429 bij te veel pogingen of gelijktijdige wachtwoordberekeningen. Algemene fouten onderaan zijn ook mogelijk.
+Errors: 400 for invalid fields/JSON, 409 `Email already registered`, 415 for an incorrect content type, 429 for too many attempts or concurrent password computations. The general errors listed below are also possible.
 
 ### POST /auth/login
 
-Dezelfde requestvelden en validatie als registratie. Succes: **200**, dezelfde gebruikersresponse en een nieuwe sessiecookie. Een fout wachtwoord of onbekend account geeft **401** met `{"error":"Invalid email or password"}`. Foutcodes 400, 415 en 429 zijn eveneens mogelijk.
+Uses the same request fields and validation as registration. Success: **200**, the same user response, and a new session cookie. An incorrect password or unknown account returns **401** with `{"error":"Invalid email or password"}`. Error codes 400, 415, and 429 are also possible.
 
-Registreren en inloggen delen een limiet van tien pogingen per minuut per direct client-IP. Achter een reverse proxy kunnen gebruikers daarom dezelfde limiet delen. Forwarded-IP-headers worden niet vertrouwd.
+Registration and login share a limit of ten attempts per minute per direct client IP. Users behind a reverse proxy may therefore share the same limit. Forwarded IP headers are not trusted.
 
 ### POST /auth/logout
 
-Geen requestbody nodig. Trekt de huidige sessie in, verwijdert de cookie en sluit de WebSockets van die sessie. Succes: **204 zonder body**, ook als er geen geldige sessie was.
+No request body is needed. Revokes the current session, removes the cookie, and closes that session's WebSockets. Success: **204 without a body**, even if there was no valid session.
 
 ### GET /auth/me
 
-Geen requestbody. Succes: **200** met dezelfde `{"user":{"id":"...","email":"..."}}`-vorm. Zonder geldige sessie: **401** met `{"error":"Authentication required"}`.
+No request body. Success: **200** with the same `{"user":{"id":"...","email":"..."}}` structure. Without a valid session: **401** with `{"error":"Authentication required"}`.
 
 ## Computers
 
 ### POST /computers
 
-| Veld | Type | Verplicht | Standaard / regels |
+| Field | Type | Required | Default / rules |
 | --- | --- | --- | --- |
-| `name` | string | Ja | Niet leeg of alleen spaties; maximaal 100 tekens |
-| `color` | string of null | Nee | `null`; exact `#RRGGBB`, hoofdletterongevoelig, opgeslagen als kleine letters |
-| `os` | string | Nee | `linux` (standaard) of `windows` |
-| `ipAddress` | string | Ja | Geldig IPv4-adres; geen hostname of IPv6 |
-| `macAddress` | string | Ja | Zes hexadecimale octetten, met consequent `:` of `-`; opgeslagen als kleine letters met `:` |
-| `broadcastAddress` | string | Ja | Geldig IPv4-broadcastadres voor het LAN |
-| `sshPort` | integer | Nee | 22; bereik 1–65535 |
-| `wolPort` | integer | Nee | 9; bereik 1–65535 |
-| `sshUsername` | string | Ja | Niet leeg of alleen spaties; maximaal 128 tekens |
-| `sshHostKeyFingerprint` | string | Ja | Canonieke OpenSSH SHA256-fingerprint: `SHA256:` en 43 base64tekens, zonder afsluitende `=` |
-| `sshPassword` | string | Keuze | Niet leeg; exact één van wachtwoord of private key |
-| `sshPrivateKey` | string | Keuze | Private-keyinhoud met eventuele newlines; exact één van key of wachtwoord |
-| `sshPrivateKeyPassphrase` | string | Nee | Uitsluitend samen met `sshPrivateKey`; een lege string is toegestaan |
+| `name` | string | Yes | Not empty or whitespace-only; at most 100 characters |
+| `color` | string or null | No | `null`; exactly `#RRGGBB`, case-insensitive, stored in lowercase |
+| `os` | string | No | `linux` (default) or `windows` |
+| `ipAddress` | string | Yes | Valid IPv4 address; no hostname or IPv6 |
+| `macAddress` | string | Yes | Six hexadecimal octets, consistently separated by `:` or `-`; stored in lowercase with `:` |
+| `broadcastAddress` | string | Yes | Valid IPv4 broadcast address for the LAN |
+| `sshPort` | integer | No | 22; range 1–65535 |
+| `wolPort` | integer | No | 9; range 1–65535 |
+| `sshUsername` | string | Yes | Not empty or whitespace-only; at most 128 characters |
+| `sshHostKeyFingerprint` | string | Yes | Canonical OpenSSH SHA256 fingerprint: `SHA256:` followed by 43 base64 characters, without a trailing `=` |
+| `sshPassword` | string | One of two | Not empty; exactly one of password or private key |
+| `sshPrivateKey` | string | One of two | Private key contents, including any newlines; exactly one of key or password |
+| `sshPrivateKeyPassphrase` | string | No | Only together with `sshPrivateKey`; an empty string is allowed |
 
-Controleer de hostfingerprint via een vertrouwde console op de computer. Geef geen eigenaar, ID, status, datum of shutdown-opdracht mee: die velden worden niet geaccepteerd.
+Verify the host fingerprint through a trusted console on the computer. Do not supply an owner, ID, status, date, or shutdown command: these fields are not accepted.
 
-Voorbeeld met fictieve gegevens; vervang de fingerprint door de echte, vertrouwd gecontroleerde fingerprint:
+Example with fictional data; replace the fingerprint with the real fingerprint verified through a trusted channel:
 
 ```json
 {
-  "name": "Werkkamer",
+  "name": "Home office",
   "color": "#3366cc",
   "os": "linux",
   "ipAddress": "192.168.1.20",
@@ -103,19 +103,19 @@ Voorbeeld met fictieve gegevens; vervang de fingerprint door de echte, vertrouwd
   "wolPort": 9,
   "sshUsername": "lightning",
   "sshHostKeyFingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-  "sshPassword": "fictief-ssh-wachtwoord"
+  "sshPassword": "fictional-ssh-password"
 }
 ```
 
-Succes: **201** met `{"computer": Computer}`. `Computer` heeft de publieke velden hieronder. De initiële status is `unknown` met `checkedAt: null`. Fouten: 400 `Invalid computer input`, 401 zonder sessie of 415 zonder JSON-contenttype, naast algemene fouten.
+Success: **201** with `{"computer": Computer}`. `Computer` has the public fields below. The initial status is `unknown` with `checkedAt: null`. Errors: 400 `Invalid computer input`, 401 without a session, or 415 without a JSON content type, in addition to general errors.
 
-### Publieke computerresponse
+### Public computer response
 
 ```json
 {
   "computer": {
     "id": "550e8400-e29b-41d4-a716-446655440001",
-    "name": "Werkkamer",
+    "name": "Home office",
     "color": "#3366cc",
     "os": "linux",
     "ipAddress": "192.168.1.20",
@@ -134,154 +134,154 @@ Succes: **201** met `{"computer": Computer}`. `Computer` heeft de publieke velde
 }
 ```
 
-`color` staat altijd in de response: een hexkleur met kleine letters of `null`. Weglaten en expliciet `null` betekenen geen kleur; er wordt geen standaardkleur gekozen. Bestaande computers krijgen bij de automatische databasemigratie `null`.
+`color` is always present in the response: a lowercase hex color or `null`. Omitting it or explicitly setting it to `null` means no color; no default color is chosen. Existing computers receive `null` during the automatic database migration.
 
-`id` is een servergegenereerde UUID. `createdAt` en een niet-lege `checkedAt` zijn ISO-datums. Status is `unknown`, `online` of `offline`. SSH-wachtwoord, private key, passphrase, ciphertext en eigenaar-ID ontbreken altijd.
+`id` is a server-generated UUID. `createdAt` and a non-null `checkedAt` are ISO dates. Status is `unknown`, `online`, or `offline`. SSH passwords, private keys, passphrases, ciphertext, and owner IDs are always omitted.
 
 ### GET /computers
 
-Geen requestbody of queryparameters nodig. Succes: **200** met `{"computers":[Computer]}`. Een lege lijst is `{"computers":[]}`. Alle computers zijn van de ingelogde gebruiker. Iedere computer heeft de bovenstaande publieke velden en de laatste status/controletijd. Zonder sessie: **401**.
+No request body or query parameters are needed. Success: **200** with `{"computers":[Computer]}`. An empty list is `{"computers":[]}`. All computers belong to the logged-in user. Each computer has the public fields above and the latest status/check time. Without a session: **401**.
 
 ### PATCH /computers/:id
 
-Wijzigt een eigen computer met een niet-leeg JSON-object. Alle velden van `POST /computers` zijn afzonderlijk wijzigbaar, met dezelfde validatie en normalisatie. Weggelaten velden behouden hun huidige waarde; er worden geen registratiestandaarden opnieuw toegepast. `color: null` verwijdert de kleur. Andere verplichte computergegevens mogen niet `null` zijn. Onbekende velden en servervelden zoals `id`, `ownerId`, `createdAt`, status en ciphertext worden geweigerd.
+Updates a computer owned by the user using a non-empty JSON object. Every field from `POST /computers` can be updated individually, with the same validation and normalization. Omitted fields retain their current values; registration defaults are not reapplied. `color: null` removes the color. Other required computer fields cannot be `null`. Unknown fields and server fields such as `id`, `ownerId`, `createdAt`, status, and ciphertext are rejected.
 
 ```json
-{"name":"Nieuwe naam","color":null,"sshPort":2222}
+{"name":"New name","color":null,"sshPort":2222}
 ```
 
-Zonder credentialvelden blijft de versleutelde credentialinhoud exact behouden, ook wanneer deze niet te ontsleutelen is. `sshPassword` vervangt alle eerdere key/passphrasegegevens. `sshPrivateKey` vervangt alle eerdere credentials; geef de eventuele passphrase opnieuw mee, anders wordt deze verwijderd. Wachtwoord en key samen, of wachtwoord en passphrase samen, zijn ongeldig.
+Without credential fields, the encrypted credential contents remain exactly as stored, even if they cannot be decrypted. `sshPassword` replaces all previous key/passphrase data. `sshPrivateKey` replaces all previous credentials; supply any passphrase again, otherwise it is removed. A password together with a key, or a password together with a passphrase, is invalid.
 
-Alleen `sshPrivateKeyPassphrase` wijzigen kan bij een bestaande, leesbare private key. Een string vervangt de passphrase; `null` verwijdert deze. Bij een nieuwe key is een eventuele passphrase een string (of weggelaten). De gecombineerde nieuwe credential-JSON blijft beperkt tot 32 KiB.
+Updating only `sshPrivateKeyPassphrase` is possible for an existing, readable private key. A string replaces the passphrase; `null` removes it. With a new key, any passphrase must be a string (or omitted). The combined new credential JSON remains limited to 32 KiB.
 
-Succes: **200** met `{"computer": Computer}`, zonder secrets. ID, eigenaar en aanmaakdatum blijven behouden. Elke succesvolle wijziging zet TCP- en SSH-status terug op `unknown`, maakt de controletijden `null` en verwijdert de automatische SSH-loginblokkade. Alle WebSockets van de eigenaar krijgen een vernieuwd snapshot. De volgende poll gebruikt de bijgewerkte gegevens. Resultaten van eerdere controles worden genegeerd; die controles blijven tot afronding meetellen voor de capaciteitslimiet. Een handmatige controle tijdens zo'n oude controle geeft 503 en kan daarna opnieuw worden aangevraagd.
+Success: **200** with `{"computer": Computer}`, without secrets. The ID, owner, and creation date are preserved. Every successful update resets TCP and SSH status to `unknown`, sets check times to `null`, and clears the automatic SSH login block. All of the owner's WebSockets receive an updated snapshot. The next poll uses the updated data. Results from earlier checks are ignored; those checks continue to count toward the capacity limit until they finish. A manual check while such an old check is running returns 503 and can be requested again afterward.
 
-Fouten: **400** bij een lege patch, ongeldige velden/JSON, credentialcombinatie of passphrasewijziging zonder leesbare key; **401** zonder sessie; **404** voor onbekende/andermans computers of verwijdering tijdens het lezen van de body; **415** zonder JSON-contenttype. Algemene fouten zijn ook mogelijk.
+Errors: **400** for an empty patch, invalid fields/JSON, an invalid credential combination, or a passphrase update without a readable key; **401** without a session; **404** for unknown computers/computers belonging to someone else, or deletion while the body is being read; **415** without a JSON content type. General errors are also possible.
 
 ### DELETE /computers/:id
 
-Geen requestbody nodig. Verwijdert uitsluitend de registratie en opgeslagen SSH-credentials van een eigen computer. De fysieke pc blijft ongemoeid: dit voert geen WOL- of shutdownactie uit. Er is geen herstelendpoint.
+No request body is needed. Deletes only the registration and stored SSH credentials of a computer owned by the user. The physical PC is unaffected: this does not perform a WOL or shutdown action. There is no recovery endpoint.
 
-Succes: **204 zonder body**. Zonder geldige sessie: **401** `Authentication required`. Een onbekende, al verwijderde of andermans computer geeft steeds **404** `Not found`. Algemene fouten zoals 403 bij een verkeerde Origin zijn ook mogelijk.
+Success: **204 without a body**. Without a valid session: **401** `Authentication required`. An unknown, already deleted, or someone else's computer always returns **404** `Not found`. General errors such as 403 for an incorrect Origin are also possible.
 
-Alle WebSockets van de eigenaar krijgen een vernieuwd snapshot zonder de verwijderde computer. Lopende statuscontroles leveren daarna geen statusbericht voor die computer meer op.
+All of the owner's WebSockets receive an updated snapshot without the deleted computer. Running status checks no longer produce status messages for that computer afterward.
 
-### SSH-status en automatische controles
+### SSH status and automatic checks
 
-Publieke computers, snapshots en statusberichten bevatten altijd `sshStatus` en
-`sshCheckedAt`. De laatste is een ISO-tijd van de laatste volledige SSH-controle of
-`null`; TCP-probes veranderen deze tijd niet. De velden zijn tijdelijk, zonder
-nieuwe databasekolommen.
+Public computers, snapshots, and status messages always contain `sshStatus` and
+`sshCheckedAt`. The latter is an ISO timestamp of the last full SSH check or
+`null`; TCP probes do not change this time. These fields are transient, with no
+new database columns.
 
-| `sshStatus` | Betekenis |
+| `sshStatus` | Meaning |
 | --- | --- |
-| `unknown` | Nog geen actuele SSH-controle; ook na terugkeer online tijdens de wachttijd |
-| `ready` | De opgeslagen SHA256-hostkey is vertrouwd en de opgeslagen credentials loggen succesvol in |
-| `auth_failed` | SSH-authenticatie geweigerd |
-| `host_key_mismatch` | De aangeboden hostkey wijkt af van de opgeslagen fingerprint |
-| `unreachable` | TCP offline of SSH-verbinding mislukt/verbroken/verlopen |
-| `error` | Interne controlefout of opgeslagen credentials niet te ontsleutelen |
+| `unknown` | No current SSH check yet; also after returning online during the cooldown |
+| `ready` | The stored SHA256 host key is trusted and the stored credentials log in successfully |
+| `auth_failed` | SSH authentication rejected |
+| `host_key_mismatch` | The presented host key differs from the stored fingerprint |
+| `unreachable` | TCP offline or SSH connection failed/disconnected/timed out |
+| `error` | Internal check error or stored credentials cannot be decrypted |
 
-Alleen wanneer de TCP-status `online` is controleert de API automatisch SSH,
-hoogstens eenmaal per zestig seconden. De bestaande TCP-controle blijft iedere tien
-seconden lopen. Na `auth_failed`, `host_key_mismatch` of onleesbare credentials zijn
-automatische pogingen geblokkeerd tot een handmatige volledige SSH-controle of computerwijziging. Die
-blokkade overleeft offline/online-overgangen, maar geen procesherstart: na herstart
-kan opnieuw een poging volgen. Offline TCP maakt oude SSH-readiness ongeldig, met
-behoud van de laatste `sshCheckedAt`. Terugkeer online tijdens de wachttijd geeft
-`unknown` tot de volgende volledige controle.
+The API checks SSH automatically only when TCP status is `online`,
+at most once every sixty seconds. The existing TCP check continues to run every ten
+seconds. After `auth_failed`, `host_key_mismatch`, or unreadable credentials,
+automatic attempts are blocked until a manual full SSH check or a computer update. This
+block survives offline/online transitions, but not a process restart: another attempt
+may occur after a restart. Offline TCP invalidates previous SSH readiness while
+preserving the last `sshCheckedAt`. Returning online during the cooldown results in
+`unknown` until the next full check.
 
-Elke SSH-controle opent een korte verbinding, valideert de hostkey, authenticeert met
-het opgeslagen wachtwoord of de private key en eventuele passphrase, en sluit
-direct. Er blijft geen sessie ingelogd. De controle opent geen shell en voert geen
-exec, sudo, SFTP of shutdown uit. `ready` bewijst geen shutdownrechten.
+Each SSH check opens a brief connection, validates the host key, authenticates using
+the stored password or private key and any passphrase, and closes
+immediately. No session remains logged in. The check does not open a shell or perform
+exec, sudo, SFTP, or shutdown operations. `ready` does not prove shutdown permissions.
 
 ### POST /computers/:id/check-ssh
 
-Vereist een geldige sessie en een eigen computer. Stuur een **lege requestbody**
-(geen `{}`). Voert een verse TCP-probe uit en alleen bij `online` een volledige
-SSH-controle. Een handmatige poging mag de automatische wachttijd en blokkade
-overslaan. Is TCP offline of onbekend, dan worden geen credentials aangeboden; een
-bestaande loginblokkade blijft dan staan.
+Requires a valid session and a computer owned by the user. Send an **empty request body**
+(not `{}`). Performs a fresh TCP probe and, only if `online`, a full
+SSH check. A manual attempt may bypass the automatic cooldown and block.
+If TCP is offline or unknown, no credentials are offered; an
+existing login block remains in place.
 
-Succes: **200**, ook wanneer de afgeronde diagnose mislukt:
+Success: **200**, even when the completed diagnostic check fails:
 
 ```json
 {"computerId":"550e8400-e29b-41d4-a716-446655440001","status":"online","checkedAt":"2026-10-15T12:00:10.000Z","sshStatus":"auth_failed","sshCheckedAt":"2026-10-15T12:00:10.000Z"}
 ```
 
-Fouten: 400 bij een niet-lege body, 401 zonder sessie, 404 voor onbekende/andermans
-computers of verwijdering tijdens de controle, 429 bij volle capaciteit, 503 wanneer
-de checker niet beschikbaar is, een oude controle na een wijziging nog loopt, of afsluiten nieuwe controles verhindert. Er komen
-geen ruwe fouten of credentials in de response.
+Errors: 400 for a non-empty body, 401 without a session, 404 for unknown computers/computers
+belonging to someone else, or deletion during the check, 429 at full capacity, 503 when
+the checker is unavailable, an old check is still running after an update, or shutdown prevents new checks. No
+raw errors or credentials appear in the response.
 
-Gelijktijdige handmatige/automatische controles voor dezelfde computer delen één
-poging. De globale limiet is tien gelijktijdige computercontroles; overtollig werk
-wordt afgewezen of overgeslagen zonder onbeperkte wachtrij. Afsluiten wacht op
-lopende controles en start geen nieuwe. Een gewijzigde TCP- **of** SSH-status
-verschijnt direct in een WebSocket-statusbericht voor de eigenaar; ongewijzigde
-statussen worden niet opnieuw gepusht. GET geeft wel verse controletijden.
+Concurrent manual/automatic checks for the same computer share a single
+attempt. The global limit is ten concurrent computer checks; excess work
+is rejected or skipped without an unbounded queue. Shutdown waits for
+running checks and starts no new ones. A changed TCP **or** SSH status
+appears immediately in a WebSocket status message for the owner; unchanged
+statuses are not pushed again. GET does return fresh check times.
 
 ### POST /computers/:id/on
 
-Vervang `:id` door de opgeslagen computer-ID. Geen requestbody nodig: adres, MAC en poort komen uit de database. Stuurt een UDP Wake-on-LAN-pakket naar het opgeslagen broadcastadres en de WOL-poort.
+Replace `:id` with the stored computer ID. No request body is needed: the address, MAC, and port come from the database. Sends a UDP Wake-on-LAN packet to the stored broadcast address and WOL port.
 
-Succes: **202** met `{"ok":true}`. Dit bevestigt verzending, niet dat de pc daadwerkelijk is gestart. Fouten: 401, 404, 502 of 504, naast algemene fouten.
+Success: **202** with `{"ok":true}`. This confirms transmission, not that the PC has actually started. Errors: 401, 404, 502, or 504, in addition to general errors.
 
 ### POST /computers/:id/off
 
-Vervang `:id` door de opgeslagen computer-ID. Geen requestbody nodig. Controleert de SSH-host key, logt in met de opgeslagen credentials en voert de vaste opdracht voor het OS uit:
+Replace `:id` with the stored computer ID. No request body is needed. Verifies the SSH host key, logs in with the stored credentials, and runs the fixed command for the OS:
 
 - Linux: `sudo -n /sbin/shutdown -h now`.
 - Windows: `shutdown.exe /s /t 0`.
 
-Succes: **202** met `{"ok":true}` nadat de SSH-opdracht succesvol is afgerond. Een verbindingsverlies zonder bevestigde exitcode 0 geldt als fout, ook als de computer ondertussen afsluit. Fouten: 401, 404, 502 of 504, naast algemene fouten. Dit endpoint schakelt de computer daadwerkelijk uit.
+Success: **202** with `{"ok":true}` after the SSH command completes successfully. A lost connection without a confirmed exit code of 0 counts as an error, even if the computer is shutting down in the meantime. Errors: 401, 404, 502, or 504, in addition to general errors. This endpoint actually shuts down the computer.
 
 ## WebSocket /ws/computers
 
-Gebruik `wss://<api-host>/ws/computers` met de sessiecookie. Browsers sturen die zelf mee. De URL moet exact dit pad bevatten; extra queryparameters of een afsluitende slash worden geweigerd. Een token in de URL authenticeert niet. Er zijn geen clientberichten nodig om updates te ontvangen.
+Use `wss://<api-host>/ws/computers` with the session cookie. Browsers send it automatically. The URL must contain exactly this path; extra query parameters or a trailing slash are rejected. A token in the URL does not authenticate. No client messages are needed to receive updates.
 
-Na de succesvolle **101**-upgrade volgt een snapshot met dezelfde publieke computerobjecten als `GET /computers`:
+After a successful **101** upgrade, a snapshot follows with the same public computer objects as `GET /computers`:
 
 ```json
 {"type":"snapshot","computers":[]}
 ```
 
-Na computerregistratie, wijziging en verwijdering wordt opnieuw een snapshot naar alle verbindingen van de eigenaar gestuurd. Snapshots bevatten ook `color` (hexkleur of `null`). Een verwijderde computer verdwijnt uit het snapshot; lopende probes sturen geen latere status voor die ID. Bij een statuswijziging volgt:
+After computer registration, updates, and deletion, another snapshot is sent to all of the owner's connections. Snapshots also contain `color` (hex color or `null`). A deleted computer disappears from the snapshot; running probes send no subsequent status for that ID. A status change produces:
 
 ```json
 {"type":"status","computerId":"550e8400-e29b-41d4-a716-446655440001","status":"online","checkedAt":"2026-10-15T12:00:10.000Z","sshStatus":"ready","sshCheckedAt":"2026-10-15T12:00:10.000Z"}
 ```
 
-De server controleert elke tien seconden de SSH-TCP-poort. `online` betekent bereikbaar, `offline` onbereikbaar, `unknown` nog niet gecontroleerd of een onverwachte interne controlefout. Dit bewijst geen fysieke aan/uit-status of succesvolle SSH-login. Ongewijzigde statussen worden niet opnieuw gepusht; `GET /computers` geeft wel de laatste controletijd.
+The server checks the SSH TCP port every ten seconds. `online` means reachable, `offline` means unreachable, and `unknown` means not yet checked or an unexpected internal check error. This does not prove the physical power state or successful SSH login. Unchanged statuses are not pushed again; `GET /computers` does return the latest check time.
 
-Logout en sessieverloop beëindigen de verbinding. De server gebruikt ping/pong en beëindigt stille verbindingen en clients met meer dan 1 MiB uitgaande buffer. Inkomende berichten zijn maximaal 64 KiB.
+Logout and session expiry terminate the connection. The server uses ping/pong and terminates silent connections and clients with more than 1 MiB of outgoing buffered data. Incoming messages are limited to 64 KiB.
 
-Fouten vóór de upgrade gebruiken een lege HTTP-body: 400 bij ongeldige handshake, 401 zonder geldige sessie, 403 bij een verkeerde Origin, 404 bij een verkeerd pad en 500 bij een interne authenticatiefout. De `ws`-library kan protocolongeldige handshakes ook zelf afwijzen, onder andere met 400 of 405. Na upgrade zijn verbindingsproblemen WebSocket-events, geen JSON HTTP-responses; de applicatie kan de verbinding abrupt beëindigen.
+Errors before the upgrade use an empty HTTP body: 400 for an invalid handshake, 401 without a valid session, 403 for an incorrect Origin, 404 for an incorrect path, and 500 for an internal authentication error. The `ws` library can also reject handshakes that violate the protocol itself, including with 400 or 405. After the upgrade, connection problems are WebSocket events, not JSON HTTP responses; the application may terminate the connection abruptly.
 
-## Algemene HTTP-fouten
+## General HTTP errors
 
-| Status | Mogelijke melding / betekenis |
+| Status | Possible message / meaning |
 | --- | --- |
-| 400 | `Empty body required`, `Invalid JSON body`, `Invalid request fields`, `Invalid email or password format` of `Invalid computer input` |
-| 401 | `Authentication required` of bij login `Invalid email or password` |
+| 400 | `Empty body required`, `Invalid JSON body`, `Invalid request fields`, `Invalid email or password format`, or `Invalid computer input` |
+| 401 | `Authentication required`, or `Invalid email or password` during login |
 | 403 | `Origin not allowed` |
-| 404 | `Not found`; onbekende route of onbekende/andermans computer |
+| 404 | `Not found`; unknown route or unknown computer/computer belonging to someone else |
 | 409 | `Email already registered` |
 | 413 | `Request body too large` |
 | 415 | `JSON body required` |
 | 429 | `Too many requests` |
-| 500 | `Internal server error`; details worden niet openbaar gemaakt |
-| 502 | `Power action failed`; bijvoorbeeld SSH-login, host-keycontrole, opdracht of WOL-verzending mislukt |
-| 503 | `SSH check unavailable`; checker niet beschikbaar of API sluit af |
+| 500 | `Internal server error`; details are not exposed |
+| 502 | `Power action failed`; for example, SSH login, host key verification, command execution, or WOL transmission failed |
+| 503 | `SSH check unavailable`; checker unavailable or API shutting down |
 | 504 | `Power action timed out` |
 
-Een foutresponse ziet er bijvoorbeeld zo uit:
+For example, an error response looks like this:
 
 ```json
 {"error":"Authentication required"}
 ```
 
-Zie [ontwikkeling](development.md) voor lokale installatie en configuratie,
-[deployment](deployment.md) voor Docker en HTTPS, en
-[computers voorbereiden](computers.md) voor SSH-rechten en WOL-instellingen.
+See [development](development.md) for local setup and configuration,
+[deployment](deployment.md) for Docker and HTTPS, and
+[preparing computers](computers.md) for SSH permissions and WOL settings.

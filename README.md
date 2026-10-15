@@ -1,26 +1,29 @@
 # Lightning API
 
-Beheer je eigen computers op het lokale netwerk: aanzetten met Wake-on-LAN,
-afsluiten via SSH en hun bereikbaarheid volgen via een WebSocket.
+**Vibe-coded with AI:** this API, its documentation, and much of its test suite
+were created with the help of AI coding agents.
 
-De API is gebouwd met TypeScript, Hono en SQLite. Er is geen frontend inbegrepen.
+Manage your own computers on a local network: wake them with Wake-on-LAN,
+shut them down over SSH, and monitor their reachability through a WebSocket.
 
-## Mogelijkheden
+Built with TypeScript, Hono, and SQLite. No frontend is included.
 
-- Accounts met sessiecookies en computers per gebruiker.
-- Computers toevoegen, wijzigen en verwijderen, met een optionele kleur.
-- Wake-on-LAN via het ingestelde MAC-adres, broadcastadres en de UDP-poort.
-- Linux- en Windows-computers afsluiten via SSH.
-- SSH-inloggegevens versleuteld opslaan en de hostkey controleren.
-- TCP-bereikbaarheid en SSH-authenticatie volgen via HTTP en WebSocket.
+## Features
 
-Een bereikbare SSH-poort betekent niet automatisch dat inloggen lukt. De API
-rapporteert daarom apart `status` en `sshStatus`. Een verzonden WOL-pakket
-bevestigt evenmin dat de pc daadwerkelijk is gestart.
+- Accounts with session cookies and computers scoped to each user.
+- Create, edit, and delete computers, with an optional display color.
+- Wake-on-LAN using the configured MAC address, broadcast address, and UDP port.
+- Shut down Linux and Windows computers over SSH.
+- Encrypted SSH credential storage and host key verification.
+- TCP reachability and SSH authentication status over HTTP and WebSocket.
 
-## Snel starten
+A reachable SSH port does not guarantee a successful login, so the API reports
+`status` and `sshStatus` separately. Sending a WOL packet does not confirm that
+the computer has started.
 
-Vereist Node.js 24 of hoger en Yarn Classic 1.22.
+## Quick start
+
+Requires Node.js 24 or later and Yarn Classic 1.22.
 
 ```sh
 yarn install --frozen-lockfile
@@ -28,46 +31,41 @@ cp .env.example .env
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Vul de gegenereerde sleutel in bij `CREDENTIAL_ENCRYPTION_KEY` in `.env`, en start:
+Set `CREDENTIAL_ENCRYPTION_KEY` in `.env` to the generated key, then start:
 
 ```sh
 chmod 600 .env
 yarn dev
 ```
 
-De API is lokaal bereikbaar op `http://localhost:3000`. De voorbeeldconfiguratie
-staat een frontend op `http://localhost:5173` toe. Bewaar de encryptiesleutel:
-zonder de oorspronkelijke sleutel zijn opgeslagen SSH-gegevens niet te herstellen.
+The API runs at `http://localhost:3000`. The example configuration allows a
+frontend at `http://localhost:5173`. Keep the encryption key safe: stored SSH
+credentials cannot be recovered without the original key.
 
-Voor Docker, een Linux-server of Raspberry Pi: zie de
-[deploymenthandleiding](docs/deployment.md). Productie gebruikt HTTPS en een
-reverse proxy. Bereid de doelcomputers voor voordat je WOL of SSH gebruikt.
+For Docker, a Linux server, or a Raspberry Pi, see the
+[deployment guide](docs/deployment.md). Production uses HTTPS and a reverse proxy.
+Prepare the target computers before using WOL or SSH.
 
-## Documentatie
+## Documentation
 
-| Onderwerp | Handleiding |
+| Topic | Guide |
 | --- | --- |
-| Endpoints, requestvelden, responses en WebSocket | [API-referentie](docs/api.md) |
-| Lokale ontwikkeling, configuratie en browsergebruik | [Ontwikkeling](docs/development.md) |
-| Docker, HTTPS, Raspberry Pi en verhuizen | [Deployment](docs/deployment.md) |
-| WOL, SSH-hostkeys en afsluitrechten | [Computers voorbereiden](docs/computers.md) |
-| Logs, back-ups en bestanden in Git | [Beheer](docs/operations.md) |
+| Endpoints, request fields, responses, and WebSocket | [API reference](docs/api.md) |
+| Local development, configuration, and browser clients | [Development](docs/development.md) |
+| Docker, HTTPS, Raspberry Pi, and migration | [Deployment](docs/deployment.md) |
+| WOL, SSH host keys, and shutdown permissions | [Preparing computers](docs/computers.md) |
+| Logs, backups, and repository contents | [Operations](docs/operations.md) |
 
-## Ontwikkeling
+## Development
 
 ```sh
 yarn test
 yarn build
 ```
 
-De tests vervangen externe TCP-, SSH- en WOL-acties door testadapters. Test
-netwerkbereikbaarheid en hardwareacties ook op je eigen installatie.
+Tests replace external TCP, SSH, and WOL operations with test adapters. Verify
+network connectivity and hardware actions on your own installation as well.
 
-## Gebouwd met AI
+## License
 
-Deze API is **gevibecode**: de code en documentatie zijn met behulp van
-AI-codingagents tot stand gekomen. Dat geldt ook voor een groot deel van de tests.
-
-## Licentie
-
-Beschikbaar onder de [MIT-licentie](LICENSE).
+Available under the [MIT License](LICENSE).
