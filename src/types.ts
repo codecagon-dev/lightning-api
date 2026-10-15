@@ -4,15 +4,20 @@ export type Credentials =
 
 export type Status = 'unknown' | 'online' | 'offline'
 
+export type SshStatus = 'unknown' | 'ready' | 'auth_failed' | 'host_key_mismatch' | 'unreachable' | 'error'
+
 export interface ComputerStatus {
   status: Status
   checkedAt: string | null
+  sshStatus: SshStatus
+  sshCheckedAt: string | null
 }
 
 export interface Computer {
   id: string
   ownerId: string
   name: string
+  color: string | null
   os: 'linux' | 'windows'
   ipAddress: string
   macAddress: string

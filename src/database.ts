@@ -26,6 +26,7 @@ export function openDatabase(path: string): DatabaseSync {
         id TEXT PRIMARY KEY,
         owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
+        color TEXT,
         os TEXT NOT NULL DEFAULT 'linux' CHECK (os IN ('linux', 'windows')),
         ip_address TEXT NOT NULL,
         mac_address TEXT NOT NULL,
@@ -39,6 +40,10 @@ export function openDatabase(path: string): DatabaseSync {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS computers_owner_id_idx ON computers(owner_id);
     `)
+    // Additive migration preserves IDs and credential ciphertext/AAD for legacy files.
+    if (!database.prepare('PRAGMA table_info(computers)').all().some(column => column.name === 'color')) {
+      database.exec('ALTER TABLE computers ADD COLUMN color TEXT')
+    }
     return database
   } catch (error) {
     database.close()

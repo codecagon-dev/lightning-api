@@ -6,7 +6,7 @@ import { SessionRepository } from '../repositories/session.repository.js'
 
 export interface UserSession { userId: string; sessionId: string; expiresAt: number }
 export class ApiError extends Error {
-  constructor(public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 502 | 504, message: string) { super(message) }
+  constructor(public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 502 | 503 | 504, message: string) { super(message) }
 }
 export interface AuthOptions { now?: () => number; maxConcurrentScrypt?: number }
 const SCRYPT_OPTIONS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }

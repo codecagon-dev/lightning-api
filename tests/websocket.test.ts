@@ -15,7 +15,7 @@ import { computersRoutes } from '../src/routes/computers.js'
 import { createApp } from '../src/app.js'
 
 const flush=async()=>{ await new Promise<void>(resolve=>setImmediate(resolve)); await new Promise<void>(resolve=>setImmediate(resolve)) }
-const input={name:'Office',os:'linux' as const,ipAddress:'192.168.1.2',macAddress:'aa:bb:cc:dd:ee:ff',broadcastAddress:'192.168.1.255',sshPort:22,wolPort:9,sshUsername:'operator',sshHostKeyFingerprint:`SHA256:${Buffer.alloc(32,7).toString('base64').replace(/=+$/,'')}`,sshPassword:'computer-secret'}
+const input={name:'Office',color:null,os:'linux' as const,ipAddress:'192.168.1.2',macAddress:'aa:bb:cc:dd:ee:ff',broadcastAddress:'192.168.1.255',sshPort:22,wolPort:9,sshUsername:'operator',sshHostKeyFingerprint:`SHA256:${Buffer.alloc(32,7).toString('base64').replace(/=+$/,'')}`,sshPassword:'computer-secret'}
 
 // Real ws handshake, framing and control frames over paired streams. No listen() is needed.
 class Wire extends Duplex {
@@ -37,7 +37,7 @@ async function fixture() {
   const a=await auth.register('a@example.com','a long password!'), b=await auth.register('b@example.com','a long password!')
   const repository=new ComputerRepository(db,()=> 'encrypted-secret')
   const ca=repository.create(a.user.id,input), cb=repository.create(b.user.id,input)
-  const status=new StatusService(repository,async()=> 'online',{now:()=>now})
+  const status=new StatusService(repository,async()=> 'online',{now:()=>now,checkSsh:async()=>({status:'ready'})})
   const server=createServer()
   const controller=attachComputerWebSockets(server,{config,authService:auth,statusService:status,repository,now:()=>now})
   const sockets: WebSocket[]=[]
@@ -118,8 +118,9 @@ test('snapshots/updates contain only owned computers; registration refreshes own
     assert.equal(a.messages[0].type,'snapshot');assert.equal(a.messages[0].computers.length,1)
     assert.equal(b.messages[0].computers[0].id,f.cb.id)
     assert.equal(a.messages[0].computers[0].status,'unknown')
+    assert.equal(a.messages[0].computers[0].color,null)
     await f.status.pollOnce();await flush()
-    assert.deepEqual(a.messages[1],{type:'status',computerId:f.ca.id,status:'online',checkedAt:'2026-10-14T00:00:00.000Z'})
+    assert.deepEqual(a.messages[1],{type:'status',computerId:f.ca.id,status:'online',checkedAt:'2026-10-14T00:00:00.000Z',sshStatus:'ready',sshCheckedAt:'2026-10-14T00:00:00.000Z'})
     assert.equal(b.messages[1].computerId,f.cb.id)
     f.setNow(f.getNow()+10000);await f.status.pollOnce();await flush()
     assert.equal(a.messages.length,2);assert.equal(b.messages.length,2)

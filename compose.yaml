@@ -13,6 +13,4 @@ services:
       PORT: 3000
       DATABASE_PATH: /app/data/lightning.sqlite
     volumes:
-      - lightning-data:/app/data
-volumes:
-  lightning-data:
+      - ./data:/app/data

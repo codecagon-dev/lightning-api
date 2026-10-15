@@ -7,9 +7,9 @@ import { SessionRepository } from '../src/repositories/session.repository.js'
 import { AuthService } from '../src/services/auth.service.js'
 import { createApp } from '../src/app.js'
 
-function fixture(options: { limit?: number } = {}) {
+function fixture(options: { limit?: number; mode?: 'development' | 'production' } = {}) {
   const db = openDatabase(':memory:')
-  const config = loadConfig({ FRONTEND_ORIGIN: 'https://app.example', CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64') })
+  const config = loadConfig({ NODE_ENV: options.mode ?? 'production', FRONTEND_ORIGIN: options.mode === 'development' ? 'http://localhost:5173' : 'https://app.example', CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64') })
   let time = 1000
   const auth = new AuthService(new UserRepository(db), new SessionRepository(db), config, { now: () => time, maxConcurrentScrypt: options.limit ?? 4 })
   let ip = '192.0.2.1'
@@ -75,6 +75,24 @@ test('HTTP auth sets strict secure cookies and exposes only public user fields',
     assert.equal((await f.app.request('/auth/me', { headers })).status, 401)
     assert.equal((await post(f.app, 'login', { email: 'a@example.com', password })).status, 200)
   } finally { f.db.close() }
+})
+
+test('login and registration use non-Secure cookies for local HTTP and Secure cookies in production', async () => {
+  for (const mode of ['development', 'production'] as const) {
+    const f = fixture({ mode })
+    try {
+      for (const action of ['register', 'login']) {
+        const response = await post(f.app, action, { email: 'local@example.com', password }, { origin: f.config.frontendOrigin })
+        assert.equal(response.status, action === 'register' ? 201 : 200)
+        const cookie = response.headers.get('set-cookie')!
+        for (const flag of ['HttpOnly', 'SameSite=Strict', 'Path=/', 'Max-Age=604800']) assert.ok(cookie.includes(flag), flag)
+        assert.equal(/;\s*Secure(?:;|$)/i.test(cookie), mode === 'production')
+        const me = await f.app.request('/auth/me', { headers: { origin: f.config.frontendOrigin, cookie: cookie.split(';')[0] } })
+        assert.equal(me.status, 200)
+        assert.equal((await me.json()).user.email, 'local@example.com')
+      }
+    } finally { f.db.close() }
+  }
 })
 
 test('Origin is exact, credentialed CORS is limited, and no-Origin requests work', async () => {

@@ -15,6 +15,13 @@ coverage
 tests
 docs
 *.log
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.bak
 *.tar
 *.tar.gz
 .DS_Store

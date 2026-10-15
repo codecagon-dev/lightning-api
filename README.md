@@ -1,5 +1,7 @@
 # Lightning API
 
+Zie [de API-referentie](docs/api.md) voor alle endpoints, requestvelden, responses en foutcodes.
+
 Een Hono/TypeScript-API om eigen computers op het lokale netwerk te registreren,
 via Wake-on-LAN aan te zetten en via SSH af te sluiten. SQLite bewaart accounts,
 sessies en versleutelde SSH-credentials. Er is geen frontend inbegrepen.
@@ -109,12 +111,15 @@ curl -b /tmp/lightning.cookies "$API/computers"
 COMPUTER_ID=vervang-door-computer-id
 curl -i -X POST -b /tmp/lightning.cookies "$API/computers/$COMPUTER_ID/on"
 curl -i -X POST -b /tmp/lightning.cookies "$API/computers/$COMPUTER_ID/off"
+# Verwijdert alleen registratie en credentials, zonder de fysieke pc te bedienen.
+curl -i -X DELETE -b /tmp/lightning.cookies "$API/computers/$COMPUTER_ID"
 curl -i -X POST -b /tmp/lightning.cookies -c /tmp/lightning.cookies "$API/auth/logout"
 rm /tmp/lightning.cookies
 ```
 
 Registreren geeft 201, login/me/list 200, computerregistratie 201 en on/off 202
-`{"ok":true}` na acceptatie door de adapter. Logout geeft 204 zonder body en sluit
+`{"ok":true}` na acceptatie door de adapter. Verwijderen geeft 204 zonder body.
+Logout geeft 204 zonder body en sluit
 bijbehorende WebSockets. WOL-acceptatie bevestigt het verzenden, niet het starten
 van de computer. Geen sessie geeft 401; ontbrekende of andermans computer geeft
 404; transportfouten geven 502 of 504 met een vaste foutmelding. JSON-fouten geven
@@ -125,24 +130,73 @@ Computerregistratie vereist name, ipAddress (IPv4), macAddress, broadcastAddress
 (IPv4), sshUsername, sshHostKeyFingerprint en precies één van sshPassword of
 sshPrivateKey. Bij een private key mag sshPrivateKeyPassphrase worden toegevoegd.
 `os` is `linux` (standaard) of `windows`, `sshPort` standaard 22, `wolPort` standaard
-9. Credentials/ciphertext/eigenaar worden nooit teruggegeven. Er zijn geen update-
-of verwijderroutes. IP/SSH-poorten moeten vanaf de API-host bereikbaar zijn.
+9. `color` is optioneel: `#RRGGBB` wordt naar kleine letters omgezet; weglaten of
+`null` geeft geen kleur (`color: null` in responses). Bestaande registraties krijgen
+bij migratie eveneens `null`. Credentials/ciphertext/eigenaar worden nooit
+teruggegeven. Er zijn geen updateroutes. IP/SSH-poorten moeten vanaf de API-host bereikbaar zijn.
 
 WebSocket `/ws/computers` gebruikt dezelfde sessie en exacte browser-Origin.
-Een verbinding krijgt een eigenaargebonden snapshot; registratie stuurt opnieuw
-een snapshot. Statusovergangen sturen:
+Een verbinding krijgt een eigenaargebonden snapshot; registratie en verwijdering sturen opnieuw
+een snapshot. Verwijderde IDs krijgen geen latere statusupdates. Statusovergangen sturen:
 
 ```json
 {"type":"snapshot","computers":[]}
-{"type":"status","computerId":"voorbeeld-id","status":"online","checkedAt":"2026-10-14T12:00:00.000Z"}
+{"type":"status","computerId":"voorbeeld-id","status":"online","checkedAt":"2026-10-14T12:00:00.000Z","sshStatus":"ready","sshCheckedAt":"2026-10-14T12:00:00.000Z"}
 ```
 
-Snapshots bevatten dezelfde publieke computervelden als de lijst, met status
+Snapshots bevatten dezelfde publieke computervelden als de lijst, inclusief
+`color` (hexkleur of null), met status
 `unknown`, `online` of `offline`, en `checkedAt` (ISO-tijd of aanvankelijk null).
 Polling begint direct, draait elke tien seconden met maximaal tien probes en geen
 overlap. Logout/verlopen sessies sluiten bestaande verbindingen. Heartbeats en
 bufferlimieten sluiten stille of trage clients; reconnect met een geldige sessie
 levert een nieuw snapshot. Een niet-browserclient mag Origin weglaten.
+
+### Echte SSH-controle
+
+Naast TCP-bereikbaarheid bevat iedere computer `sshStatus` en `sshCheckedAt`
+(ISO-tijd van de laatste volledige SSH-controle, aanvankelijk `null`). De mogelijke
+waarden zijn `unknown` (nog geen actuele controle), `ready` (vertrouwde hostkey en
+succesvolle login), `auth_failed` (login geweigerd), `host_key_mismatch` (hostkey
+wijkt af), `unreachable` (TCP/SSH niet bereikbaar) en `error` (interne controlefout
+of onleesbare opgeslagen credentials). Deze velden zijn tijdelijk procesgeheugen,
+geen databasekolommen.
+
+Iedere controle opent een korte SSH-verbinding, controleert de opgeslagen SHA256-
+hostkey, logt in met het opgeslagen wachtwoord of de private key/passphrase en
+sluit direct. Er blijven geen SSH-sessies ingelogd. Er wordt geen shell, opdracht,
+sudo, SFTP of shutdown uitgevoerd. `ready` bewijst dus geen shutdownrechten.
+
+TCP wordt iedere tien seconden gecontroleerd. Alleen bij `online` volgt automatisch
+een SSH-controle, hoogstens eenmaal per zestig seconden. Na geweigerde authenticatie,
+een afwijkende hostkey of onleesbare credentials stoppen automatische loginpogingen
+tot een handmatige volledige controle. Offline/online worden heft die blokkade niet
+op. De blokkade en resultaten leven alleen in dit proces: na een herstart kan de API
+opnieuw eenmaal proberen. Offline TCP maakt een oude `ready` ongeldig en kan
+`unreachable` tonen; na terugkeer tijdens de wachttijd blijft de SSH-status `unknown`.
+TCP-controles veranderen `sshCheckedAt` niet.
+
+`POST /computers/:id/check-ssh` met sessiecookie en een lege body controleert direct
+TCP en bij `online` ook SSH, ongeacht wachttijd of blokkade. De response is **200**
+met `{computerId,status,checkedAt,sshStatus,sshCheckedAt}`, ook bij een afgeronde
+mislukte diagnose. Zonder sessie volgt 401; onbekende/andermans/verwijderde computers
+geven 404. Een niet-lege body geeft 400, volle capaciteit 429 en een niet-beschikbare
+checker 503. Een handmatige controle terwijl TCP offline is voert geen login uit en
+heft een bestaande loginblokkade niet op. Gelijke gelijktijdige controles delen één
+poging; maximaal tien computercontroles kunnen tegelijk lopen. Afsluiten wacht op
+lopende controles en start geen nieuwe SSH-verbindingen. SSH-statuswijzigingen
+verschijnen direct als owner-only WebSocket-statusbericht; ongewijzigde statussen
+blijven stil en GET geeft wel actuele controletijden.
+
+Computers wijzigen kan met `PATCH /computers/:id` en een niet-leeg JSON-object,
+bijvoorbeeld `{"name":"Werkkamer","color":null}`. Weggelaten velden blijven behouden;
+alle registratievelden zijn wijzigbaar. Een nieuw SSH-wachtwoord of een nieuwe key
+vervangt de volledige oude credentialset. Alleen een passphrase wijzigen kan bij
+een bestaande private key; `null` verwijdert die passphrase. Succes geeft 200 met
+de publieke computer en een vernieuwd WebSocket-snapshot voor de eigenaar.
+Elke wijziging reset TCP/SSH-status, controletijden en de SSH-loginblokkade;
+oude controles worden genegeerd en de volgende poll gebruikt de nieuwe gegevens.
+Zie [PATCH in de API-referentie](docs/api.md#patch-computersid) voor alle regels.
 
 ## Computers voorbereiden
 
@@ -184,11 +238,47 @@ test bewijst geen werkende WOL of shutdown: beide vereisen echte hardwarevalidat
 
 ## Docker op een Linux-server
 
+### Lokaal testen met HTTP
+
+Voor Docker op je eigen pc is er een expliciete development-override:
+
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+docker compose -f compose.yaml -f compose.dev.yaml logs -f --tail=50 api
+```
+
+Deze gebruikt `NODE_ENV=development` en standaard `FRONTEND_ORIGIN=http://localhost:5173`.
+De database en encryptiesleutel uit de bestaande Compose-configuratie blijven in gebruik;
+je bestaande account blijft dus geldig. `.env.production` blijft nodig voor die sleutel.
+Login en registratie gebruiken dan HttpOnly, SameSite=Strict, Path=/ en Max-Age=604800,
+zonder Secure. Hono verwacht Max-Age in seconden, niet de milliseconden van Express.
+Log na de herstart opnieuw in met je bestaande account.
+
+Gebruik voor frontend en API allebei `localhost` (frontend bijvoorbeeld
+`http://localhost:5173`, API `http://localhost:3000`) en stuur bij login, registratie
+en beveiligde requests `credentials: 'include'` mee. Voor een andere frontend-origin:
+
+```sh
+FRONTEND_ORIGIN=http://localhost:3001 docker compose -f compose.yaml -f compose.dev.yaml up -d
+```
+
+De override leest `FRONTEND_ORIGIN` uit de shell of de lokale `.env`, met localhost:5173
+als fallback. Alleen `NODE_ENV=development` in een envbestand zetten is voor de
+basis-Compose-configuratie niet voldoende: die forceert production.
+
+### Productie met HTTPS
+
 Docker Engine en de Compose-plugin moeten op de server aanwezig zijn. De
 multi-stage image installeert met de lockfile, compileert TypeScript en draait als
-onbevoorrechte `node`-gebruiker. Het named volume bewaart `/app/data`; een nieuw
-volume neemt de node-eigenaar van deze directory over. Bij hergebruik moet de
-volume-eigenaar UID/GID 1000 kunnen schrijven. Gebruik een eigen envbestand:
+onbevoorrechte `node`-gebruiker. De hostmap `./data` wordt gekoppeld aan `/app/data`.
+Maak die map vooraf aan en geef de containergebruiker schrijfrechten:
+
+```sh
+mkdir -p data
+sudo chown -R 1000:1000 data
+```
+
+Gebruik een eigen envbestand:
 
 ```sh
 cp .env.example .env.production
@@ -215,25 +305,69 @@ procesopruiming. Secrets worden pas via `.env.production` geïnjecteerd en niet 
 de image gebakken. Publiceer `docker compose config`-output met secrets niet;
 gebruik `--quiet`. `.dockerignore` sluit secrets, lokale data en configuratie uit.
 
+## Logs bekijken
+
+De API schrijft één JSON-object per regel: `info` naar stdout, `warn` en `error`
+naar stderr. Elke regel bevat `timestamp` (UTC), `level` en `event`.
+
+```sh
+# Lokaal, na yarn build:
+node dist/index.js > api.log 2> api-errors.log
+# Docker, inclusief recente regels en live updates:
+docker compose logs --tail=100 --follow api
+# Alleen de JSON-regels, zonder Compose-prefix:
+docker compose logs --no-log-prefix --tail=100 api
+```
+
+HTTP-verzoeken krijgen `http_request` met methode, geregistreerd routepatroon,
+uiteindelijke `statusCode` en `durationMs`, ook bij 401/403/404/413/500. Onbekende
+routes heten `<unmatched>`; concrete IDs en querystrings staan niet in HTTP-logs.
+Een onverwachte 500 geeft daarnaast `internal_error` met vaste reden.
+
+```json
+{"timestamp":"2026-10-15T10:00:00.000Z","level":"info","event":"http_request","method":"POST","route":"/computers/:id/off","statusCode":202,"durationMs":12.4}
+{"timestamp":"2026-10-15T10:00:01.000Z","level":"error","event":"power_action","action":"off","computerId":"f02c60e1-f7fb-44e8-ae76-cf35487b878f","outcome":"failure","reason":"auth_failed"}
+```
+
+Poweracties loggen `on`/`off`, de opgeslagen computer-ID en succes of fout.
+Vaste foutredenen zijn `hostkey_mismatch`, `auth_failed`, `connect_failed`,
+`connect_timeout`, `command_timeout`, `command_failed`, `udp_failed`,
+`udp_timeout`, `credential_decryption` en `unknown`. HTTP-responses blijven
+algemeen; technische foutdetails gaan niet naar clients of logs.
+
+`startup`, `shutdown_started` en `shutdown_complete` tonen de levenscyclus;
+`shutdown_failed` meldt een vaste foutreden. `startup_failed` geeft uitsluitend
+bekende configuratiecontroles of toegestane bind-/SQLite-foutcodes met een vaste
+handelingsgerichte melding. Onbekende opstartfouten krijgen een algemene melding.
+
+Bodies, headers, cookies, sessietokens, e-mailadressen, wachtwoorden, SSH-sleutels,
+passphrases, encryptiesleutels, ruwe foutmeldingen/stacks en SSH-uitvoer worden
+niet gelogd. Volledige SSH-controles geven `ssh_check` met alleen computer-ID en
+`outcome` (`ready`, `auth_failed`, `host_key_mismatch`, `unreachable` of `error`).
+Periodieke TCP-probes en WebSocket-frames produceren geen logs.
+Een falende logsink verandert de HTTP-respons of poweractie niet.
+
 ## Back-up en verificatie
 
 Stop de API vóór een eenvoudige bestandsback-up en bewaar de volledige
 SQLite-datadirectory (inclusief eventuele WAL/SHM-bestanden) en **de oorspronkelijke
 encryptiesleutel** afzonderlijk en beschermd. Bij Docker: stop eerst Compose en
-kopieer/archiveer het named volume met behoud van eigenaar en rechten; zet de
+kopieer/archiveer de hostmap `data/` met behoud van eigenaar en rechten; zet de
 sleutel uit het afgeschermde envbestand veilig apart. Herstel data en sleutel
 samen en controleer de schrijfrechten voordat de API opnieuw start.
-Gebruik `docker compose down -v` niet wanneer je data wilt behouden. Een nieuwe
+Verwijder de map `data/` niet wanneer je data wilt behouden. Een nieuwe
 sleutel maakt bestaande credentials onleesbaar; een verloren sleutel kan niet
 uit de database worden teruggehaald.
 
-De workspace-tests gebruiken echte SQLite/auth/Hono en echte WebSocket-framing
-via geheugenstreams, met vervangende power/probe-adapters. De lokale sandbox
-weigert luisterende sockets (`EPERM`); een gebonden HTTP/WSS-smoketest is hier
-niet uitgevoerd. De Docker-client is beschikbaar, maar toegang tot de daemon
-is geweigerd en de Compose-plugin ontbreekt. Imagebuild, containers, Compose-CLI,
-reverse proxy, Node 24-runtime en echte hardware zijn hier **niet uitgevoerd**.
-Bovenstaande servercommando's zijn de nog uit te voeren smokechecks. Dependency-
-installatie met de lockfile is offline gecontroleerd zonder optionele pakketten
-of scripts; een gewone schone installatie/build vereist een server met registry-
-toegang. De bestaande lokale dependencies worden gebruikt voor build en tests.
+De tests gebruiken echte SQLite/auth/Hono en WebSocket-framing via geheugenstreams,
+met vervangende TCP/SSH/WOL-adapters. Voer ze uit met `yarn test` en compileer met
+`yarn build`. Controleer op de doelserver daarnaast HTTPS, websockets, WOL en SSH
+met echte hardware; de tests vervangen die controles niet.
+
+## Bestanden in Git
+
+Broncode, tests, `yarn.lock`, Docker-configuratie, `.env.example` en documentatie
+horen in Git. Echte `.env`-bestanden, SQLite-data, SSH-sleutels, logs, dependencies,
+buildoutput en lokale agentbestanden zijn uitgesloten via `.gitignore`.
+Bewaar de database en encryptiesleutel veilig buiten Git, ook bij het verhuizen
+naar een Raspberry Pi.
