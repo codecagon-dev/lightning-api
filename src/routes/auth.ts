@@ -6,21 +6,19 @@ import { authRateLimit, requireAuth, type AppEnv, type ClientIpProvider } from '
 
 export function authRoutes(auth: AuthService, config: Config, clientIp?: ClientIpProvider, now?: () => number): Hono<AppEnv> {
   const routes = new Hono<AppEnv>()
-  const limit = authRateLimit(clientIp, now)
+  const limit = authRateLimit(auth, clientIp, now)
   const cookieOptions = { httpOnly: true, secure: config.secureCookies, sameSite: 'Strict' as const, path: '/' }
-  for (const action of ['register', 'login'] as const) {
-    routes.post(`/${action}`, limit, async c => {
-      if (!/^application\/json(?:\s*;|$)/i.test(c.req.header('Content-Type') ?? '')) throw new ApiError(415, 'JSON body required')
-      let body: unknown
-      try { body = await c.req.json() } catch { throw new ApiError(400, 'Invalid JSON body') }
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).sort().join(',') !== 'email,password') throw new ApiError(400, 'Invalid request fields')
-      const { email, password } = body as Record<string, unknown>
-      if (typeof email !== 'string' || typeof password !== 'string') throw new ApiError(400, 'Invalid request fields')
-      const { user, token } = await auth[action](email, password)
-      setCookie(c, config.sessionCookieName, token, { ...cookieOptions, maxAge: config.sessionLifetimeMs / 1000 })
-      return c.json({ user: { id: user.id, email: user.email } }, action === 'register' ? 201 : 200)
-    })
-  }
+  routes.post('/login', limit, async c => {
+    if (!/^application\/json(?:\s*;|$)/i.test(c.req.header('Content-Type') ?? '')) throw new ApiError(415, 'JSON body required')
+    let body: unknown
+    try { body = await c.req.json() } catch { throw new ApiError(400, 'Invalid JSON body') }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).sort().join(',') !== 'email,password') throw new ApiError(400, 'Invalid request fields')
+    const { email, password } = body as Record<string, unknown>
+    if (typeof email !== 'string' || typeof password !== 'string') throw new ApiError(400, 'Invalid request fields')
+    const { user, token } = await auth.login(email, password)
+    setCookie(c, config.sessionCookieName, token, { ...cookieOptions, maxAge: config.sessionLifetimeMs / 1000 })
+    return c.json({ user: { id: user.id, email: user.email } })
+  })
   routes.post('/logout', c => {
     auth.logout(getCookie(c, config.sessionCookieName) ?? '')
     deleteCookie(c, config.sessionCookieName, cookieOptions)

@@ -1,3 +1,4 @@
+import { AuthLimitRepository } from '../src/repositories/auth-limit.repository.js'
 import { test } from 'node:test'
 import { spawn } from 'node:child_process'
 import assert from 'node:assert/strict'
@@ -15,7 +16,7 @@ test('HTTP logs final statuses and route templates without request or error secr
   const config = loadConfig({ NODE_ENV: 'development', CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64') })
   const db = openDatabase(':memory:')
   try {
-    const authService = new AuthService(new UserRepository(db), new SessionRepository(db), config)
+    const authService = new AuthService(new UserRepository(db), new SessionRepository(db), config, new AuthLimitRepository(db))
     const app = createApp({ config, authService, logger, registerRoutes: app => {
       app.get('/ok/:id', c => c.json({ ok: true }))
       app.get('/expected', () => { throw new ApiError(401, 'secret-error') })
@@ -58,7 +59,7 @@ test('sink failures cannot change HTTP success or sanitized errors', async () =>
   const config = loadConfig({ NODE_ENV: 'development', CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64') })
   const db = openDatabase(':memory:')
   try {
-    const authService = new AuthService(new UserRepository(db), new SessionRepository(db), config)
+    const authService = new AuthService(new UserRepository(db), new SessionRepository(db), config, new AuthLimitRepository(db))
     for (const logger of [createLogger(() => { throw new Error('sink secret') }), { log() { throw new Error('sink secret') } }]) {
       const app = createApp({ config, authService, logger, registerRoutes: app => {
         app.get('/ok', c => c.json({ ok: true }))

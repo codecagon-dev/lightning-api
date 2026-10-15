@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+import { normalizeSshUsername } from '../ssh-username.js'
 import { defaultLogger, log, powerReasons, type Logger } from '../logging.js'
 import { Hono } from 'hono'
 import { createPowerActions, PowerError, type PowerActions } from '../services/ssh.service.js'
@@ -40,7 +41,8 @@ function parseComputerFields(body: Record<string, unknown>): Omit<ComputerUpdate
   const name = boundedString(body.name, 100)
   if (body.color != null && (typeof body.color !== 'string' || !/^#[a-fA-F\d]{6}$/.test(body.color) || body.color.length !== 7)) return invalid()
   const color = typeof body.color === 'string' ? body.color.toLowerCase() : null
-  const sshUsername = boundedString(body.sshUsername, 128)
+  let sshUsername: string
+  try { sshUsername = normalizeSshUsername(body.sshUsername) } catch { return invalid() }
   const ipAddress = ipv4(body.ipAddress)
   const broadcastAddress = ipv4(body.broadcastAddress)
   if (typeof body.macAddress !== 'string' || !/^(?:[a-fA-F\d]{2}:){5}[a-fA-F\d]{2}$|^(?:[a-fA-F\d]{2}-){5}[a-fA-F\d]{2}$/.test(body.macAddress)) return invalid()

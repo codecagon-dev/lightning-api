@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Client, type ConnectConfig } from 'ssh2'
+import { normalizeSshUsername } from '../ssh-username.js'
 import type { Config } from '../config.js'
 import type { Computer, Credentials, SshStatus } from '../types.js'
 import { decryptCredentials } from './credentials.service.js'
@@ -80,7 +81,7 @@ function sshSession(computer: Computer, credentials: Credentials, options: SshCh
           })
         } catch { finish(new PowerError(502, started ? 'command_failed' : 'connect_failed')) }
       })
-      client.connect({ host: computer.ipAddress, port: computer.sshPort, username: computer.sshUsername,
+      client.connect({ host: computer.ipAddress, port: computer.sshPort, username: normalizeSshUsername(computer.sshUsername),
         readyTimeout: options.connectTimeoutMs ?? 10000,
         ...(credentials.sshPassword !== undefined ? { password: credentials.sshPassword } : { privateKey: credentials.sshPrivateKey, passphrase: credentials.sshPrivateKeyPassphrase }),
         hostVerifier: (rawKey: Buffer) => {

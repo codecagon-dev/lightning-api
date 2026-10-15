@@ -3,10 +3,11 @@ import type { Config } from '../config.js'
 import type { User } from '../types.js'
 import { UserRepository } from '../repositories/user.repository.js'
 import { SessionRepository } from '../repositories/session.repository.js'
+import { AuthLimitRepository, type AuthLimitScope } from '../repositories/auth-limit.repository.js'
 
 export interface UserSession { userId: string; sessionId: string; expiresAt: number }
 export class ApiError extends Error {
-  constructor(public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 502 | 503 | 504, message: string) { super(message) }
+  constructor(public readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 502 | 503 | 504, message: string, public readonly retryAfter?: number) { super(message) }
 }
 export interface AuthOptions { now?: () => number; maxConcurrentScrypt?: number }
 const SCRYPT_OPTIONS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }
@@ -17,12 +18,13 @@ export class AuthService {
   private readonly maxConcurrent: number
   private active = 0
   private readonly listeners = new Set<(sessionId: string) => void>()
-  constructor(private readonly users: UserRepository, private readonly sessions: SessionRepository, private readonly config: Config, options: AuthOptions = {}) {
+  constructor(private readonly users: UserRepository, private readonly sessions: SessionRepository, private readonly config: Config, private readonly limits: AuthLimitRepository, options: AuthOptions = {}) {
     this.now = options.now ?? Date.now
     this.maxConcurrent = options.maxConcurrentScrypt ?? 4
     if (!Number.isInteger(this.maxConcurrent) || this.maxConcurrent < 1 || this.maxConcurrent > 16) throw new Error('Invalid password hashing concurrency')
   }
-  async register(email: string, password: string): Promise<{ user: User; token: string }> {
+  /** Local provisioning only; deliberately does not create a login session. */
+  async createUser(email: string, password: string): Promise<User> {
     email = this.validate(email, password)
     if (this.users.findByEmail(email)) throw new ApiError(409, 'Email already registered')
     const salt = randomBytes(16)
@@ -30,11 +32,17 @@ export class AuthService {
     const user: User = { id: randomUUID(), email, passwordHash: `scrypt$${salt.toString('hex')}$${key.toString('hex')}`, createdAt: new Date(this.now()).toISOString() }
     // Recheck after asynchronous hashing to cover simultaneous registrations.
     if (this.users.findByEmail(email)) throw new ApiError(409, 'Email already registered')
-    this.users.create(user)
-    return { user, token: this.createSession(user.id) }
+    try { this.users.create(user) }
+    catch (error) {
+      // Another CLI process may have inserted the normalized email meanwhile.
+      if (this.users.findByEmail(email)) throw new ApiError(409, 'Email already registered')
+      throw error
+    }
+    return user
   }
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
     email = this.validate(email, password)
+    this.checkRateLimit('login', email)
     const user = this.users.findByEmail(email)
     const parts = user?.passwordHash.split('$')
     const validHash = parts?.length === 3 && parts[0] === 'scrypt' && /^[a-f0-9]{32}$/.test(parts[1]!) && /^[a-f0-9]{128}$/.test(parts[2]!)
@@ -43,6 +51,10 @@ export class AuthService {
     const actual = await this.derive(password, salt)
     if (!timingSafeEqual(actual, expected) || !user || !validHash) throw new ApiError(401, 'Invalid email or password')
     return { user, token: this.createSession(user.id) }
+  }
+  checkRateLimit(scope: AuthLimitScope, subject: string, now = this.now()): void {
+    const retryAfter = this.limits.consume(scope, subject, now)
+    if (retryAfter !== null) throw new ApiError(429, 'Too many requests', retryAfter)
   }
   authenticate(token: string): UserSession | null {
     this.cleanupExpired()

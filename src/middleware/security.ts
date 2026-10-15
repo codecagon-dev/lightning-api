@@ -18,6 +18,7 @@ export function browserSecurity(config: Config): MiddlewareHandler<AppEnv> {
     if (origin === config.frontendOrigin) {
       c.header('Access-Control-Allow-Origin', origin)
       c.header('Access-Control-Allow-Credentials', 'true')
+      c.header('Access-Control-Expose-Headers', 'Retry-After')
     }
     if (c.req.method === 'OPTIONS') {
       c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
@@ -38,20 +39,9 @@ export function requireAuth(auth: AuthService, config: Config): MiddlewareHandle
     await next()
   }
 }
-export function authRateLimit(clientIp: ClientIpProvider = directClientIp, now: () => number = Date.now): MiddlewareHandler<AppEnv> {
-  const entries = new Map<string, { count: number; expiresAt: number }>()
+export function authRateLimit(auth: AuthService, clientIp: ClientIpProvider = directClientIp, now?: () => number): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const time = now()
-    for (const [ip, entry] of entries) if (entry.expiresAt <= time) entries.delete(ip)
-    const ip = clientIp(c)
-    let entry = entries.get(ip)
-    if (!entry) {
-      // Fail closed at capacity rather than allowing eviction to bypass the limit.
-      if (entries.size >= 10000) throw new ApiError(429, 'Too many requests')
-      entry = { count: 0, expiresAt: time + 60000 }
-      entries.set(ip, entry)
-    }
-    if (++entry.count > 10) throw new ApiError(429, 'Too many requests')
+    auth.checkRateLimit('ip', clientIp(c), now?.())
     await next()
   }
 }

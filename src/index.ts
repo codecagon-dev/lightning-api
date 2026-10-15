@@ -1,3 +1,4 @@
+import { AuthLimitRepository } from './repositories/auth-limit.repository.js'
 import { createServer, type Server } from 'node:http'
 import { defaultLogger, log, startupFailure, type Logger } from './logging.js'
 import { resolve } from 'node:path'
@@ -44,7 +45,7 @@ export function createRuntime(config: Config, options: RuntimeOptions = {}) {
   const logger = options.logger ?? defaultLogger
   const database = openDatabase(config.databasePath)
   try {
-    const authService = new AuthService(new UserRepository(database), new SessionRepository(database), config)
+    const authService = new AuthService(new UserRepository(database), new SessionRepository(database), config, new AuthLimitRepository(database))
     const repository = new ComputerRepository(database, (id, owner, credentials) =>
       encryptCredentials(config.credentialEncryptionKey, id, owner, credentials))
     const statusService = new StatusService(repository, options.probe, { checkSsh: options.checkSsh ?? createSshChecker(config), logger })

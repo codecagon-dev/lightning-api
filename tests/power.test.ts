@@ -1,3 +1,5 @@
+import { createAndLogin } from './helpers.js'
+import { AuthLimitRepository } from '../src/repositories/auth-limit.repository.js'
 import { test } from 'node:test'
 import { createLogger } from '../src/logging.js'
 import assert from 'node:assert/strict'
@@ -76,14 +78,20 @@ for(const [os,command] of [['linux','sudo -n /sbin/shutdown -h now'],['windows',
 test('SSH mismatched host key never executes even if ready is incorrectly emitted',async()=>{
   const client=new SSH('success',Buffer.from('unknown'));await assert.rejects(shutdownComputer(computer,{sshPassword:'secret'},{clientFactory:()=>client}),{status:502,reason:'hostkey_mismatch'});client.emit('ready');assert.deepEqual(client.commands,[]);assert.equal(client.destroyed,1)
 })
+test('SSH transport normalizes usernames before authentication without altering passwords', async () => {
+  const client = new SSH()
+  await shutdownComputer({ ...computer, sshUsername: '  DOMAIN\\Operator  ' }, { sshPassword: '  secret  ' }, { clientFactory: () => client })
+  assert.equal(client.options.username, 'DOMAIN\\Operator')
+  assert.equal(client.options.password, '  secret  ')
+})
 for(const mode of ['login','earlyClose','earlyEnd','connectTimeout','commandTimeout','nonzero','missingExit','disconnect','execError','streamError']) test('SSH rejects and cleans '+mode,async()=>{
   const client=new SSH(mode);await assert.rejects(shutdownComputer(computer,{sshPrivateKey:'key',sshPrivateKeyPassphrase:'phrase'},{clientFactory:()=>client,connectTimeoutMs:10,commandTimeoutMs:10}),e=>e instanceof PowerError&&e.status===(mode.endsWith('Timeout')?504:502)&&e.reason===(mode==='login'?'auth_failed':mode==='earlyClose'||mode==='earlyEnd'?'connect_failed':mode==='connectTimeout'?'connect_timeout':mode==='commandTimeout'?'command_timeout':'command_failed'));assert.equal(client.destroyed,1);assert.equal(client.options.privateKey,'key');assert.equal(client.options.passphrase,'phrase');if(mode==='login'||mode==='connectTimeout')assert.deepEqual(client.commands,[])
 })
 test('power endpoints isolate owners, await acceptance and sanitize failures; damaged encryption never starts SSH',async()=>{
  const db=openDatabase(':memory:');try{
  const config=loadConfig({FRONTEND_ORIGIN:'https://app.example',CREDENTIAL_ENCRYPTION_KEY:Buffer.alloc(32,1).toString('base64')})
- const auth=new AuthService(new UserRepository(db),new SessionRepository(db),config)
- const a=await auth.register('power-a@example.com','a long password!');const b=await auth.register('power-b@example.com','a long password!')
+ const auth=new AuthService(new UserRepository(db),new SessionRepository(db),config,new AuthLimitRepository(db))
+ const a=await createAndLogin(auth, 'power-a@example.com','a long password!');const b=await createAndLogin(auth, 'power-b@example.com','a long password!')
  const repo=new ComputerRepository(db,(id,owner,c)=>encryptCredentials(config.credentialEncryptionKey,id,owner,c))
  const {id,ownerId,encryptedCredentials,createdAt,...input}=computer
  const saved=repo.create(a.user.id,parseComputerInput({...input,sshPassword:'secret'}))

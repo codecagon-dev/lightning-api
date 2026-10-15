@@ -11,7 +11,7 @@ in [Lightning App](https://github.com/codecagon-dev/lightning-app).
 
 ## Features
 
-- Accounts with session cookies and computers scoped to each user.
+- Locally provisioned accounts with session cookies and computers scoped to each user.
 - Create, edit, and delete computers, with an optional display color.
 - Wake-on-LAN using the configured MAC address, broadcast address, and UDP port.
 - Shut down Linux and Windows computers over SSH.
@@ -53,12 +53,17 @@ Set `CREDENTIAL_ENCRYPTION_KEY` in `.env` to the generated key, then start:
 
 ```sh
 chmod 600 .env
+yarn build
+yarn user:create operator@example.com
 yarn dev
 ```
 
 The API runs at `http://localhost:3000`. The example configuration allows a
 frontend at `http://localhost:5173`. Keep the encryption key safe: stored SSH
 credentials cannot be recovered without the original key.
+The account command asks for a password twice without displaying it. Creating
+accounts requires access to the Pi/server; public registration is disabled.
+See [account management](docs/operations.md#creating-accounts) for Docker commands.
 
 For Docker, a Linux server, or a Raspberry Pi, see the
 [deployment guide](docs/deployment.md). Production uses HTTPS and a reverse proxy.

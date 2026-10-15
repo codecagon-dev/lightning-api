@@ -33,8 +33,9 @@ test('runtime composes real auth/storage/routes/owner WebSockets and closes with
   try {
     const request = (path: string, cookie = '', body?: unknown) => runtime.app.request(path, { method: body === undefined ? 'GET' : 'POST', headers: { cookie, 'content-type': 'application/json', origin: config.frontendOrigin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const register = async (email: string) => {
-      const response = await request('/auth/register', '', { email, password: 'long integration password' })
-      assert.equal(response.status, 201)
+      await runtime.authService.createUser(email, 'long integration password')
+      const response = await request('/auth/login', '', { email, password: 'long integration password' })
+      assert.equal(response.status, 200)
       return response.headers.get('set-cookie')!.split(';')[0]!
     }
     const owner = await register('owner@example.com'), other = await register('other@example.com')
@@ -131,7 +132,8 @@ test('manual diagnostic deletion suppresses cache and returns 404; runtime stop 
     checkSsh: async () => { checks++; await new Promise<void>(resolve => { release = resolve }); return { status: 'ready' } },
   })
   try {
-    const registered = await runtime.app.request('/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'diagnostic@example.com', password: 'long integration password' }) })
+    await runtime.authService.createUser('diagnostic@example.com', 'long integration password')
+    const registered = await runtime.app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'diagnostic@example.com', password: 'long integration password' }) })
     const cookie = registered.headers.get('set-cookie')!.split(';')[0]!
     const create = await runtime.app.request('/computers', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Office', ipAddress: '192.168.1.2', macAddress: 'aa:bb:cc:dd:ee:ff', broadcastAddress: '192.168.1.255', sshUsername: 'operator', sshHostKeyFingerprint: `SHA256:${Buffer.alloc(32, 7).toString('base64').replace(/=+$/, '')}`, sshPassword: 'test-credential' }) })
     const { computer } = await create.json()
@@ -159,7 +161,8 @@ test('editing during an HTTP SSH check returns unavailable and cannot publish th
     checkSsh: async () => { if (defer) await new Promise<void>(resolve => { release = resolve }); return { status: 'ready' } },
   })
   try {
-    const registration = await runtime.app.request('/auth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'edit@example.com', password: 'long integration password' }) })
+    await runtime.authService.createUser('edit@example.com', 'long integration password')
+    const registration = await runtime.app.request('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'edit@example.com', password: 'long integration password' }) })
     const cookie = registration.headers.get('set-cookie')!.split(';')[0]!
     const headers = { cookie, 'content-type': 'application/json' }
     const created = await runtime.app.request('/computers', { method: 'POST', headers, body: JSON.stringify({ name: 'Office', ipAddress: '192.168.1.2', macAddress: 'aa:bb:cc:dd:ee:ff', broadcastAddress: '192.168.1.255', sshUsername: 'operator', sshHostKeyFingerprint: `SHA256:${Buffer.alloc(32, 7).toString('base64').replace(/=+$/, '')}`, sshPassword: 'old-secret' }) })

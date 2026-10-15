@@ -79,7 +79,7 @@ test('database enables WAL, initializes tables and enforces owner foreign keys',
   try {
     assert.equal(db.prepare('PRAGMA journal_mode').get()?.journal_mode, 'wal')
     assert.equal(db.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1)
-    assert.deepEqual(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(row => row.name), ['computers', 'sessions', 'users'])
+    assert.deepEqual(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(row => row.name), ['auth_limits', 'computers', 'schema_migrations', 'sessions', 'users'])
     assert.throws(() => db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run('hash', 'missing-user', Date.now()))
     db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run('owner-1', 'a@example.com', 'salt:hash', '2026-10-14T00:00:00.000Z')
     db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run('hash', 'owner-1', Date.now())

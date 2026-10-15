@@ -1,3 +1,5 @@
+import { createAndLogin } from './helpers.js'
+import { AuthLimitRepository } from '../src/repositories/auth-limit.repository.js'
 import { test } from 'node:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,12 +18,60 @@ import { createApp } from '../src/app.js'
 
 const fingerprint = `SHA256:${Buffer.alloc(32, 7).toString('base64').replace(/=+$/, '')}`
 const input = { name: 'Office', ipAddress: '192.168.1.20', macAddress: 'aA-Bb-cc-DD-ee-Ff', broadcastAddress: '192.168.1.255', sshUsername: 'operator', sshHostKeyFingerprint: fingerprint, sshPassword: 'ssh-secret-for-computer' }
+
+test('SSH usernames trim surrounding whitespace while preserving case, domains and Unicode', () => {
+  for (const [value, expected] of [['  Operator\t', 'Operator'], [' DOMAIN\\User ', 'DOMAIN\\User'], ['\u00a0Jörg\u00a0', 'Jörg'], [' Local User ', 'Local User']]) {
+    assert.equal(parseComputerInput({ ...input, sshUsername: value }).sshUsername, expected)
+  }
+  for (const value of [' ', 'user\0name', 'user\nname', 'user\tname', 'user\u007fname']) {
+    assert.throws(() => parseComputerInput({ ...input, sshUsername: value }), /Invalid computer input/)
+  }
+})
+
+test('SSH username normalization persists for HTTP creation, PATCH and direct repository writes', async () => {
+  const f = await fixture()
+  try {
+    const { computer } = await (await f.post({ ...input, sshUsername: '  Operator  ' })).json()
+    assert.equal(computer.sshUsername, 'Operator')
+    assert.equal(f.db.prepare('SELECT ssh_username FROM computers WHERE id = ?').get(computer.id)!.ssh_username, 'Operator')
+    const patched = await f.app.request(`/computers/${computer.id}`, { method: 'PATCH', headers: { ...f.headers(f.a.token), 'content-type': 'application/json' }, body: JSON.stringify({ sshUsername: '  DOMAIN\\Admin  ' }) })
+    assert.equal(patched.status, 200)
+    assert.equal((await patched.json()).computer.sshUsername, 'DOMAIN\\Admin')
+    const direct = f.repo.create(f.a.user.id, { ...parseComputerInput(input), sshUsername: '  DirectUser  ' })
+    assert.equal(f.repo.findOwned(f.a.user.id, direct.id)!.sshUsername, 'DirectUser')
+    assert.equal(f.repo.updateOwned(f.a.user.id, direct.id, { ...direct, sshUsername: '  UpdatedUser  ' })!.sshUsername, 'UpdatedUser')
+  } finally { f.db.close() }
+})
+
+test('invalid legacy SSH usernames roll back migration without partially rewriting stored identities', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lightning-username-'))
+  const path = join(directory, 'test.sqlite')
+  const db = openDatabase(path)
+  try {
+    new UserRepository(db).create({ id: 'owner', email: 'owner@example.com', passwordHash: 'hash', createdAt: '2026-10-15' })
+    const repo = new ComputerRepository(db, () => 'unchanged-ciphertext')
+    const first = repo.create('owner', parseComputerInput(input))
+    const second = repo.create('owner', parseComputerInput(input))
+    db.prepare('UPDATE computers SET ssh_username = ? WHERE id = ?').run('  Operator  ', first.id)
+    db.prepare('UPDATE computers SET ssh_username = ? WHERE id = ?').run('bad\0name', second.id)
+    db.exec('DELETE FROM schema_migrations')
+    assert.throws(() => openDatabase(path), /Invalid SSH username/)
+    assert.equal(repo.findOwned('owner', first.id)!.sshUsername, '  Operator  ')
+    assert.equal(db.prepare('SELECT count(*) AS count FROM schema_migrations').get()!.count, 0)
+    db.prepare('UPDATE computers SET ssh_username = ? WHERE id = ?').run(' Repaired ', second.id)
+    const reopened = openDatabase(path)
+    reopened.close()
+    assert.equal(repo.findOwned('owner', first.id)!.sshUsername, 'Operator')
+    assert.equal(repo.findOwned('owner', second.id)!.sshUsername, 'Repaired')
+    assert.equal(repo.findOwned('owner', second.id)!.encryptedCredentials, 'unchanged-ciphertext')
+  } finally { db.close(); rmSync(directory, { recursive: true, force: true }) }
+})
 async function fixture() {
   const db = openDatabase(':memory:')
   const config = loadConfig({ FRONTEND_ORIGIN: 'https://app.example', CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 42).toString('base64') })
-  const auth = new AuthService(new UserRepository(db), new SessionRepository(db), config)
-  const a = await auth.register('a@example.com', 'a long password!')
-  const b = await auth.register('b@example.com', 'a long password!')
+  const auth = new AuthService(new UserRepository(db), new SessionRepository(db), config, new AuthLimitRepository(db))
+  const a = await createAndLogin(auth, 'a@example.com', 'a long password!')
+  const b = await createAndLogin(auth, 'b@example.com', 'a long password!')
   const repo = new ComputerRepository(db, (id, owner, credentials) => encryptCredentials(config.credentialEncryptionKey, id, owner, credentials))
   const snapshots: string[] = []
   const statuses = new Map<string, ComputerStatus>()
@@ -196,14 +246,14 @@ test('legacy file migration reopens twice without changing identities or encrypt
     const owner = { id: 'legacy-owner', email: 'legacy@example.com', passwordHash: 'preserved-password-hash', createdAt: '2026-10-14T00:00:00.000Z' }
     users.create(owner)
     // Build the original schema, without color, and a ciphertext bound to fixed IDs.
-    db.exec('DROP TABLE computers; CREATE TABLE computers (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, os TEXT NOT NULL, ip_address TEXT NOT NULL, mac_address TEXT NOT NULL, broadcast_address TEXT NOT NULL, ssh_port INTEGER NOT NULL, wol_port INTEGER NOT NULL, ssh_username TEXT NOT NULL, ssh_host_key_fingerprint TEXT NOT NULL, encrypted_credentials TEXT NOT NULL, created_at TEXT NOT NULL) STRICT')
+    db.exec('DELETE FROM schema_migrations; DROP TABLE computers; CREATE TABLE computers (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, os TEXT NOT NULL, ip_address TEXT NOT NULL, mac_address TEXT NOT NULL, broadcast_address TEXT NOT NULL, ssh_port INTEGER NOT NULL, wol_port INTEGER NOT NULL, ssh_username TEXT NOT NULL, ssh_host_key_fingerprint TEXT NOT NULL, encrypted_credentials TEXT NOT NULL, created_at TEXT NOT NULL) STRICT')
     const ciphertext = encryptCredentials(config.credentialEncryptionKey, 'legacy-id', owner.id, { sshPassword: 'legacy-secret' })
-    db.prepare('INSERT INTO computers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('legacy-id', owner.id, 'Legacy', 'linux', '192.168.1.20', 'aa:bb:cc:dd:ee:ff', '192.168.1.255', 22, 9, 'operator', fingerprint, ciphertext, '2026-10-14T00:00:00.000Z')
+    db.prepare('INSERT INTO computers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('legacy-id', owner.id, 'Legacy', 'linux', '192.168.1.20', 'aa:bb:cc:dd:ee:ff', '192.168.1.255', 22, 9, '\u00a0 Operator\t', fingerprint, ciphertext, '2026-10-14T00:00:00.000Z')
     const original = { ...db.prepare('SELECT * FROM computers').get()! }
     for (let attempt = 0; attempt < 2; attempt++) {
       db.close(); db = openDatabase(path)
       const migrated = { ...db.prepare('SELECT * FROM computers').get()! }
-      assert.deepEqual(migrated, { ...original, color: null })
+      assert.deepEqual(migrated, { ...original, ssh_username: 'Operator', color: null })
       const repo = new ComputerRepository(db, (id, uid, credentials) => encryptCredentials(config.credentialEncryptionKey, id, uid, credentials))
       const saved = repo.findOwned(owner.id, 'legacy-id')!
       assert.equal(saved.color, null)

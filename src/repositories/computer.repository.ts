@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Computer, ComputerStatus, Credentials, PublicComputer } from '../types.js'
+import { normalizeSshUsername } from '../ssh-username.js'
 
 export type ComputerInput = Omit<Computer, 'id' | 'ownerId' | 'encryptedCredentials' | 'createdAt'> & Credentials
 export type ComputerUpdate = Omit<ComputerInput, keyof Credentials> & { credentials?: Credentials }
@@ -22,7 +23,7 @@ export class ComputerRepository {
     const computer: Computer = {
       id, ownerId, name: input.name, color: input.color, os: input.os, ipAddress: input.ipAddress,
       macAddress: input.macAddress, broadcastAddress: input.broadcastAddress,
-      sshPort: input.sshPort, wolPort: input.wolPort, sshUsername: input.sshUsername,
+      sshPort: input.sshPort, wolPort: input.wolPort, sshUsername: normalizeSshUsername(input.sshUsername),
       sshHostKeyFingerprint: input.sshHostKeyFingerprint,
       encryptedCredentials: this.encrypt(id, ownerId, credentials), createdAt: new Date().toISOString(),
     }
@@ -44,7 +45,7 @@ export class ComputerRepository {
       ssh_host_key_fingerprint = ?, encrypted_credentials = COALESCE(?, encrypted_credentials)
       WHERE owner_id = ? AND id = ?`)
       .run(input.name, input.color, input.os, input.ipAddress, input.macAddress, input.broadcastAddress,
-        input.sshPort, input.wolPort, input.sshUsername, input.sshHostKeyFingerprint, encrypted, ownerId, id)
+        input.sshPort, input.wolPort, normalizeSshUsername(input.sshUsername), input.sshHostKeyFingerprint, encrypted, ownerId, id)
     return result.changes > 0 ? this.findOwned(ownerId, id) : null
   }
 

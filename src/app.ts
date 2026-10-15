@@ -18,7 +18,10 @@ export function createApp(deps: AppDependencies): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
   const logger = deps.logger ?? defaultLogger
   app.onError((error, c) => {
-    if (error instanceof ApiError) return c.json({ error: error.message }, error.status)
+    if (error instanceof ApiError) {
+      if (error.retryAfter !== undefined) c.header('Retry-After', String(error.retryAfter))
+      return c.json({ error: error.message }, error.status)
+    }
     log(logger, 'error', { event: 'internal_error', reason: 'unexpected_error' })
     return c.json({ error: 'Internal server error' }, 500)
   })

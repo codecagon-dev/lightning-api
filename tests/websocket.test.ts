@@ -1,3 +1,5 @@
+import { createAndLogin } from './helpers.js'
+import { AuthLimitRepository } from '../src/repositories/auth-limit.repository.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, IncomingMessage } from 'node:http'
@@ -33,8 +35,8 @@ async function fixture() {
   let now=Date.parse('2026-10-14T00:00:00.000Z')
   const db=openDatabase(':memory:')
   const config=loadConfig({FRONTEND_ORIGIN:'https://app.example',CREDENTIAL_ENCRYPTION_KEY:Buffer.alloc(32,42).toString('base64')})
-  const auth=new AuthService(new UserRepository(db),new SessionRepository(db),config,{now:()=>now})
-  const a=await auth.register('a@example.com','a long password!'), b=await auth.register('b@example.com','a long password!')
+  const auth=new AuthService(new UserRepository(db),new SessionRepository(db),config,new AuthLimitRepository(db),{now:()=>now})
+  const a=await createAndLogin(auth, 'a@example.com','a long password!'), b=await createAndLogin(auth, 'b@example.com','a long password!')
   const repository=new ComputerRepository(db,()=> 'encrypted-secret')
   const ca=repository.create(a.user.id,input), cb=repository.create(b.user.id,input)
   const status=new StatusService(repository,async()=> 'online',{now:()=>now,checkSsh:async()=>({status:'ready'})})

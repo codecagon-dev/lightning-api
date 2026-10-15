@@ -5,9 +5,9 @@ This reference describes Lightning API's current HTTP endpoints and WebSocket. T
 ## General conventions
 
 - Requests containing account or computer data require `Content-Type: application/json`.
-- JSON objects for registration/login, computer registration, and computer updates are strict: unknown fields return 400.
+- JSON objects for login, computer registration, and computer updates are strict: unknown fields return 400.
 - The maximum HTTP body size is 64 KiB. The combined JSON containing SSH credentials must not exceed 32 KiB, including UTF-8 encoding and JSON escaping.
-- Authentication uses the `lightning_session` cookie. Registration and login set this cookie; the response body contains no token.
+- Authentication uses the `lightning_session` cookie. Login sets this cookie; the response body contains no token.
 - The cookie is HttpOnly, SameSite=Strict, valid for seven days, and Secure in production. The frontend and API must be same-site for browser use. Use `credentials: 'include'` for cross-origin fetch requests.
 - If present, `Origin` must exactly match `FRONTEND_ORIGIN`. Non-browser clients may omit Origin. CORS preflights use `OPTIONS` and return 204 for an allowed Origin.
 - Computer data and actions are available only to the owner. An unknown computer and a computer belonging to someone else both return 404.
@@ -17,7 +17,6 @@ This reference describes Lightning API's current HTTP endpoints and WebSocket. T
 
 | Method | Path | Authentication | Success |
 | --- | --- | --- | --- |
-| POST | `/auth/register` | No | 201, user and session cookie |
 | POST | `/auth/login` | No | 200, user and session cookie |
 | POST | `/auth/logout` | Optional | 204, empty body; session revoked |
 | GET | `/auth/me` | Yes | 200, current user |
@@ -34,7 +33,12 @@ There are currently no password reset or admin endpoints.
 
 ## Accounts
 
-### POST /auth/register
+Accounts are provisioned locally by an administrator with access to the Pi/server
+and its database. Use the [account creation command](operations.md#creating-accounts).
+There is no HTTP registration endpoint; `POST /auth/register` returns **404**.
+The separately maintained frontend should offer login only.
+
+### POST /auth/login
 
 | Field | Type | Required | Rules |
 | --- | --- | --- | --- |
@@ -45,19 +49,38 @@ There are currently no password reset or admin endpoints.
 {"email":"operator@example.com","password":"example-password-123"}
 ```
 
-Success: **201** and a `Set-Cookie` header. Registration logs the user in immediately.
+Success: **200** and a `Set-Cookie` header for a new session.
 
 ```json
 {"user":{"id":"550e8400-e29b-41d4-a716-446655440000","email":"operator@example.com"}}
 ```
 
-Errors: 400 for invalid fields/JSON, 409 `Email already registered`, 415 for an incorrect content type, 429 for too many attempts or concurrent password computations. The general errors listed below are also possible.
+An incorrect password or unknown account returns **401** with
+`{"error":"Invalid email or password"}`. Errors: 400 for invalid fields/JSON,
+415 for an incorrect content type, 429 for too many attempts or concurrent password
+computations. The general errors listed below are also possible.
 
-### POST /auth/login
+Login has a fixed window of ten requests per minute per direct
+client IP, including malformed requests that reach the auth routes. Login also
+allows ten attempts per minute per normalized email address (trimmed and
+lowercased), across all IPs. This applies equally to existing and nonexistent
+accounts and counts successful attempts too. The eleventh request within either
+window starts a fifteen-minute ban for that IP or login name. Requests during a
+ban return **429** with `{"error":"Too many requests"}` and `Retry-After` in
+seconds; they do not extend the ban. The allowed frontend can read this header
+through CORS. Existing sessions remain valid.
 
-Uses the same request fields and validation as registration. Success: **200**, the same user response, and a new session cookie. An incorrect password or unknown account returns **401** with `{"error":"Invalid email or password"}`. Error codes 400, 415, and 429 are also possible.
+Counters and bans are stored in SQLite and survive restarts; processes using the
+same database share the limits. Expired entries are removed on subsequent auth
+attempts. At 10,000 active entries, new identities receive 429 until space is
+available; active bans are never evicted to admit new identities. Database errors
+fail closed with a sanitized 500, without starting password verification.
 
-Registration and login share a limit of ten attempts per minute per direct client IP. Users behind a reverse proxy may therefore share the same limit. Forwarded IP headers are not trusted.
+Users behind a reverse proxy share the direct peer IP limit. Forwarded IP headers
+are not trusted. A login-name ban can temporarily prevent the legitimate owner
+from logging in too. These are temporary authentication bans, not permanent
+account suspensions or bans imposed on remote SSH servers. The password hashing
+concurrency guard can also return 429, without `Retry-After`.
 
 ### POST /auth/logout
 
@@ -81,7 +104,7 @@ No request body. Success: **200** with the same `{"user":{"id":"...","email":"..
 | `broadcastAddress` | string | Yes | Valid IPv4 broadcast address for the LAN |
 | `sshPort` | integer | No | 22; range 1–65535 |
 | `wolPort` | integer | No | 9; range 1–65535 |
-| `sshUsername` | string | Yes | Not empty or whitespace-only; at most 128 characters |
+| `sshUsername` | string | Yes | Surrounding whitespace is trimmed; 1–128 characters after trimming; embedded control characters are rejected. Case, Unicode spelling, domain prefixes and internal spaces are preserved. |
 | `sshHostKeyFingerprint` | string | Yes | Canonical OpenSSH SHA256 fingerprint: `SHA256:` followed by 43 base64 characters, without a trailing `=` |
 | `sshPassword` | string | One of two | Not empty; exactly one of password or private key |
 | `sshPrivateKey` | string | One of two | Private key contents, including any newlines; exactly one of key or password |
@@ -267,7 +290,6 @@ Errors before the upgrade use an empty HTTP body: 400 for an invalid handshake, 
 | 401 | `Authentication required`, or `Invalid email or password` during login |
 | 403 | `Origin not allowed` |
 | 404 | `Not found`; unknown route or unknown computer/computer belonging to someone else |
-| 409 | `Email already registered` |
 | 413 | `Request body too large` |
 | 415 | `JSON body required` |
 | 429 | `Too many requests` |

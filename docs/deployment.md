@@ -23,13 +23,13 @@ docker compose -f compose.yaml -f compose.dev.yaml logs -f --tail=50 api
 This uses `NODE_ENV=development` and defaults to `FRONTEND_ORIGIN=http://localhost:5173`.
 The database and encryption key from the existing Compose configuration remain in
 use, so your existing account stays valid. `.env.production` is still required for
-that key. Login and registration then use HttpOnly, SameSite=Strict, Path=/ and
+that key. Login then uses HttpOnly, SameSite=Strict, Path=/ and
 Max-Age=604800, without Secure. Log in again after switching between HTTP
 development and HTTPS production.
 
 Use `localhost` for both the frontend and API (for example,
 `http://localhost:5173` for the frontend and `http://localhost:3000` for the API),
-and include `credentials: 'include'` in login, registration and authenticated
+and include `credentials: 'include'` in login and authenticated
 requests. To use a different frontend origin:
 
 ```sh
@@ -64,6 +64,8 @@ chmod 600 .env.production
 docker compose config --quiet
 docker compose build
 docker compose up -d
+# Create an account locally; the command prompts for its password twice:
+docker compose exec api npm run user:create -- operator@example.com
 docker compose logs --tail=20 api
 curl -i http://127.0.0.1:3000/auth/me   # Without a cookie: 401 JSON
 # Then check the same API examples over HTTPS and WSS in the browser.
@@ -83,6 +85,10 @@ image. Do not publish `docker compose config` output containing secrets; use
 `--quiet`. `.dockerignore` excludes secrets, local data and configuration.
 
 ## Reverse proxy and cookies
+
+Account creation requires shell access to the Pi/server or container. See
+[creating accounts](operations.md#creating-accounts) for direct Node and Docker
+commands. There is no public registration endpoint.
 
 Place a reverse proxy on the host in front of `127.0.0.1:3000`, with a valid HTTPS
 certificate for the API and support for WebSocket upgrades at `/ws/computers`.

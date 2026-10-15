@@ -15,6 +15,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 # Set CREDENTIAL_ENCRYPTION_KEY in .env to the generated key.
 chmod 600 .env
 yarn build
+yarn user:create operator@example.com
 yarn start
 # During development: yarn dev
 # Tests: yarn test
@@ -46,6 +47,9 @@ Locally, use `http://localhost:5173` for the frontend and `http://localhost:3000
 for the API, with `NODE_ENV=development`. Use the same hostname: do not mix
 `localhost` and `127.0.0.1`. Include `credentials: 'include'` in fetch requests.
 The API does not serve a frontend.
+Create the account locally first; see [creating accounts](operations.md#creating-accounts).
+`POST /auth/register` is unavailable. Remove self-registration controls from
+frontend clients that used the previous endpoint.
 
 ```js
 await fetch('http://localhost:3000/auth/login', {
