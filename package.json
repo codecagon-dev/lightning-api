@@ -1,6 +1,7 @@
 {
   "name": "lightning-api",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": { "node": ">=24.0.0" },

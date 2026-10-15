@@ -282,4 +282,6 @@ Een foutresponse ziet er bijvoorbeeld zo uit:
 {"error":"Authentication required"}
 ```
 
-Zie [de README](../README.md) voor installatie, Docker, HTTPS-proxy, sudoers en WOL-instellingen.
+Zie [ontwikkeling](development.md) voor lokale installatie en configuratie,
+[deployment](deployment.md) voor Docker en HTTPS, en
+[computers voorbereiden](computers.md) voor SSH-rechten en WOL-instellingen.
